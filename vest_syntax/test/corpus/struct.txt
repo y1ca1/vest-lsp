@@ -1,0 +1,105 @@
+================================================================================
+Simple struct definition
+================================================================================
+
+foo = {
+  a: u8,
+  b: u16,
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (definition
+    (combinator_defn
+      name: (var_id (identifier))
+      body: (combinator
+        (combinator_inner
+          (struct_combinator
+            (field
+              (var_id (identifier))
+              (combinator
+                (combinator_inner
+                  (constraint_int_combinator (int_combinator)))))
+            (field
+              (var_id (identifier))
+              (combinator
+                (combinator_inner
+                  (constraint_int_combinator (int_combinator)))))))))))
+
+================================================================================
+Struct with const fields
+================================================================================
+
+msg = {
+  const version: u8 = 1,
+  length: u16,
+  const magic: [u8; 4] = "VEST",
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (definition
+    (combinator_defn
+      name: (var_id (identifier))
+      body: (combinator
+        (combinator_inner
+          (struct_combinator
+            (field
+              (constant)
+              (var_id (identifier))
+              (const_combinator
+                (inline_const_combinator
+                  (const_int_combinator
+                    (int_combinator)
+                    (const_int (decimal))))))
+            (field
+              (var_id (identifier))
+              (combinator
+                (combinator_inner
+                  (constraint_int_combinator (int_combinator)))))
+            (field
+              (constant)
+              (var_id (identifier))
+              (const_combinator
+                (inline_const_combinator
+                  (const_bytes_combinator
+                    (int_combinator)
+                    (const_int (decimal))
+                    (const_array (const_char_array (string)))))))))))))
+
+================================================================================
+Struct with dependent fields
+================================================================================
+
+header = {
+  @len: u16,
+  data: [u8; @len],
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (definition
+    (combinator_defn
+      name: (var_id (identifier))
+      body: (combinator
+        (combinator_inner
+          (struct_combinator
+            (field
+              (depend_id)
+              (combinator
+                (combinator_inner
+                  (constraint_int_combinator (int_combinator)))))
+            (field
+              (var_id (identifier))
+              (combinator
+                (combinator_inner
+                  (array_combinator
+                    (combinator
+                      (combinator_inner
+                        (constraint_int_combinator (int_combinator))))
+                    (length_expr
+                      (length_term
+                        (length_atom (depend_id))))))))))))))

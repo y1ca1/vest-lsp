@@ -1,0 +1,15 @@
+id = "vest"
+name = "Vest"
+description = "Language support for Vest DSL - a parser and serializer generator for binary data formats"
+version = "0.1.0"
+schema_version = 1
+authors = ["Vest Team"]
+repository = "https://github.com/vest-dsl/vest-lsp"
+
+[language_servers.vest-lsp]
+name = "Vest LSP"
+languages = ["Vest"]
+
+[grammars.vest]
+repository = "https://github.com/vest-dsl/vest-lsp"
+path = "vest_syntax"

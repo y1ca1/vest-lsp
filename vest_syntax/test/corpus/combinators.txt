@@ -1,0 +1,75 @@
+================================================================================
+Vec combinator
+================================================================================
+
+items = Vec<item>
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (definition
+    (combinator_defn
+      name: (var_id (identifier))
+      body: (combinator
+        (combinator_inner
+          (vec_combinator
+            (vec)
+            (combinator
+              (combinator_inner
+                (combinator_invocation (var_id (identifier)))))))))))
+
+================================================================================
+Option combinator
+================================================================================
+
+maybe = Option<value>
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (definition
+    (combinator_defn
+      name: (var_id (identifier))
+      body: (combinator
+        (combinator_inner
+          (option_combinator
+            (combinator
+              (combinator_inner
+                (combinator_invocation (var_id (identifier)))))))))))
+
+================================================================================
+Tail combinator
+================================================================================
+
+rest = Tail
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (definition
+    (combinator_defn
+      name: (var_id (identifier))
+      body: (combinator
+        (combinator_inner
+          (tail_combinator (tail)))))))
+
+================================================================================
+Bind combinator
+================================================================================
+
+bound = [u8; 10] >>= inner
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (definition
+    (combinator_defn
+      name: (var_id (identifier))
+      body: (combinator
+        (combinator_inner
+          (array_combinator
+            (combinator (combinator_inner (constraint_int_combinator (int_combinator))))
+            (length_expr (length_term (length_atom (const_int (decimal)))))))
+        (combinator
+          (combinator_inner
+            (combinator_invocation (var_id (identifier)))))))))

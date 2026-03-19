@@ -1,0 +1,19 @@
+[package]
+name = "vest_syntax"
+version.workspace = true
+edition.workspace = true
+description = "Tree-sitter grammar for Vest DSL"
+build = "build.rs"
+include = ["bindings/rust/*", "grammar.js", "queries/*", "src/*"]
+
+[lib]
+path = "bindings/rust/lib.rs"
+
+[dependencies]
+tree-sitter-language = "0.1"
+
+[dev-dependencies]
+tree-sitter = { workspace = true }
+
+[build-dependencies]
+cc = "1"

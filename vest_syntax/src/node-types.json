@@ -1,0 +1,1471 @@
+[
+  {
+    "type": "array_combinator",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "combinator",
+          "named": true
+        },
+        {
+          "type": "length_expr",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "ascii",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "choice_arm",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "combinator",
+          "named": true
+        },
+        {
+          "type": "const_array",
+          "named": true
+        },
+        {
+          "type": "constraint_elem",
+          "named": true
+        },
+        {
+          "type": "variant_id",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "choice_combinator",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "choice_arm",
+          "named": true
+        },
+        {
+          "type": "depend_id",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "combinator",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "combinator",
+          "named": true
+        },
+        {
+          "type": "combinator_inner",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "combinator_defn",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "combinator",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "var_id",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "modifier",
+          "named": true
+        },
+        {
+          "type": "param_defn_list",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "combinator_inner",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "array_combinator",
+          "named": true
+        },
+        {
+          "type": "choice_combinator",
+          "named": true
+        },
+        {
+          "type": "combinator_invocation",
+          "named": true
+        },
+        {
+          "type": "constraint_enum_combinator",
+          "named": true
+        },
+        {
+          "type": "constraint_int_combinator",
+          "named": true
+        },
+        {
+          "type": "enum_combinator",
+          "named": true
+        },
+        {
+          "type": "macro_invocation",
+          "named": true
+        },
+        {
+          "type": "option_combinator",
+          "named": true
+        },
+        {
+          "type": "struct_combinator",
+          "named": true
+        },
+        {
+          "type": "tail_combinator",
+          "named": true
+        },
+        {
+          "type": "vec_combinator",
+          "named": true
+        },
+        {
+          "type": "wrap_combinator",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "combinator_invocation",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "param_list",
+          "named": true
+        },
+        {
+          "type": "var_id",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "const_array",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "const_char_array",
+          "named": true
+        },
+        {
+          "type": "const_int_array",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "const_bytes_combinator",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "const_array",
+          "named": true
+        },
+        {
+          "type": "const_int",
+          "named": true
+        },
+        {
+          "type": "int_combinator",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "const_bytes_or_array",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "combinator",
+          "named": true
+        },
+        {
+          "type": "const_array",
+          "named": true
+        },
+        {
+          "type": "length_expr",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "const_char_array",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "string",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "const_combinator",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "const_id",
+          "named": true
+        },
+        {
+          "type": "inline_const_combinator",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "const_combinator_defn",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "const_combinator",
+          "named": true
+        },
+        {
+          "type": "const_id",
+          "named": true
+        },
+        {
+          "type": "constant",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "const_enum_combinator",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "combinator_invocation",
+          "named": true
+        },
+        {
+          "type": "variant_id",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "const_id",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "const_int",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "ascii",
+          "named": true
+        },
+        {
+          "type": "decimal",
+          "named": true
+        },
+        {
+          "type": "hex",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "const_int_array",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "int_array_expr",
+          "named": true
+        },
+        {
+          "type": "repeat_int_array_expr",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "const_int_combinator",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "const_int",
+          "named": true
+        },
+        {
+          "type": "int_combinator",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "const_int_range",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "const_int",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "constraint_elem",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "const_int",
+          "named": true
+        },
+        {
+          "type": "const_int_range",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "constraint_elem_set",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "constraint_elem",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "constraint_enum_combinator",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "combinator_invocation",
+          "named": true
+        },
+        {
+          "type": "enum_constraint",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "constraint_int_combinator",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "int_combinator",
+          "named": true
+        },
+        {
+          "type": "int_constraint",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "definition",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "combinator_defn",
+          "named": true
+        },
+        {
+          "type": "const_combinator_defn",
+          "named": true
+        },
+        {
+          "type": "endianess_defn",
+          "named": true
+        },
+        {
+          "type": "macro_defn",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "endianess_defn",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "enum_combinator",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "exhaustive_enum",
+          "named": true
+        },
+        {
+          "type": "non_exhaustive_enum",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "enum_constraint",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "enum_constraint",
+          "named": true
+        },
+        {
+          "type": "enum_constraint_elem",
+          "named": true
+        },
+        {
+          "type": "enum_constraint_set",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "enum_constraint_elem",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "variant_id",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "enum_constraint_set",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "enum_constraint_elem",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "enum_field",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "typed_const_int",
+          "named": true
+        },
+        {
+          "type": "variant_id",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "exhaustive_enum",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "enum_field",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "field",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "combinator",
+          "named": true
+        },
+        {
+          "type": "const_combinator",
+          "named": true
+        },
+        {
+          "type": "constant",
+          "named": true
+        },
+        {
+          "type": "depend_id",
+          "named": true
+        },
+        {
+          "type": "var_id",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "inline_const_combinator",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "const_bytes_combinator",
+          "named": true
+        },
+        {
+          "type": "const_enum_combinator",
+          "named": true
+        },
+        {
+          "type": "const_int_combinator",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "int_array_expr",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "const_int",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "int_combinator",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "btc_varint",
+          "named": true
+        },
+        {
+          "type": "uleb128",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "int_constraint",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "constraint_elem",
+          "named": true
+        },
+        {
+          "type": "constraint_elem_set",
+          "named": true
+        },
+        {
+          "type": "int_constraint",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "int_width",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "length_atom",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "const_int",
+          "named": true
+        },
+        {
+          "type": "depend_id",
+          "named": true
+        },
+        {
+          "type": "length_expr",
+          "named": true
+        },
+        {
+          "type": "size_expr",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "length_expr",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "add_op",
+          "named": true
+        },
+        {
+          "type": "length_term",
+          "named": true
+        },
+        {
+          "type": "sub_op",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "length_term",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "div_op",
+          "named": true
+        },
+        {
+          "type": "length_atom",
+          "named": true
+        },
+        {
+          "type": "mul_op",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "macro_arg_list",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "combinator_inner",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "macro_defn",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "combinator",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "var_id",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "macro_param_list",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "macro_invocation",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "macro_arg_list",
+          "named": true
+        },
+        {
+          "type": "var_id",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "macro_param_list",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "var_id",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "modifier",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "non_exhaustive_enum",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "enum_field",
+          "named": true
+        },
+        {
+          "type": "non_exhaustive_marker",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "option_combinator",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "combinator",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "param",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "depend_id",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "param_defn",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "combinator_inner",
+          "named": true
+        },
+        {
+          "type": "depend_id",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "param_defn_list",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "param_defn",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "param_list",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "param",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "repeat_int_array_expr",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "const_int",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "size_expr",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "size_target",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "size_target",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "btc_varint",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "int_width",
+          "named": true
+        },
+        {
+          "type": "signed",
+          "named": true
+        },
+        {
+          "type": "uleb128",
+          "named": true
+        },
+        {
+          "type": "unsigned",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "source_file",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "definition",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "struct_combinator",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "field",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "tail_combinator",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "tail",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "typed_const_int",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "const_int",
+          "named": true
+        },
+        {
+          "type": "int_type_suffix",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "var_id",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "variant_id",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "vec_combinator",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "combinator",
+          "named": true
+        },
+        {
+          "type": "vec",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "wrap_arg",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "combinator",
+          "named": true
+        },
+        {
+          "type": "const_bytes_or_array",
+          "named": true
+        },
+        {
+          "type": "const_enum_combinator",
+          "named": true
+        },
+        {
+          "type": "const_int_combinator",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "wrap_args",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "wrap_arg",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "wrap_combinator",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "wrap_args",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "!",
+    "named": false
+  },
+  {
+    "type": "!BIG_ENDIAN",
+    "named": false
+  },
+  {
+    "type": "!LITTLE_ENDIAN",
+    "named": false
+  },
+  {
+    "type": "'",
+    "named": false
+  },
+  {
+    "type": "(",
+    "named": false
+  },
+  {
+    "type": ")",
+    "named": false
+  },
+  {
+    "type": ",",
+    "named": false
+  },
+  {
+    "type": "..",
+    "named": false
+  },
+  {
+    "type": "16",
+    "named": false
+  },
+  {
+    "type": "24",
+    "named": false
+  },
+  {
+    "type": "32",
+    "named": false
+  },
+  {
+    "type": "64",
+    "named": false
+  },
+  {
+    "type": "8",
+    "named": false
+  },
+  {
+    "type": ":",
+    "named": false
+  },
+  {
+    "type": ";",
+    "named": false
+  },
+  {
+    "type": "<",
+    "named": false
+  },
+  {
+    "type": "=",
+    "named": false
+  },
+  {
+    "type": "=>",
+    "named": false
+  },
+  {
+    "type": ">",
+    "named": false
+  },
+  {
+    "type": ">>=",
+    "named": false
+  },
+  {
+    "type": "Option",
+    "named": false
+  },
+  {
+    "type": "[",
+    "named": false
+  },
+  {
+    "type": "]",
+    "named": false
+  },
+  {
+    "type": "_",
+    "named": false
+  },
+  {
+    "type": "add_op",
+    "named": true
+  },
+  {
+    "type": "btc_varint",
+    "named": true
+  },
+  {
+    "type": "choose",
+    "named": false
+  },
+  {
+    "type": "comment",
+    "named": true
+  },
+  {
+    "type": "constant",
+    "named": true
+  },
+  {
+    "type": "decimal",
+    "named": true
+  },
+  {
+    "type": "depend_id",
+    "named": true
+  },
+  {
+    "type": "div_op",
+    "named": true
+  },
+  {
+    "type": "enum",
+    "named": false
+  },
+  {
+    "type": "hex",
+    "named": true
+  },
+  {
+    "type": "identifier",
+    "named": true
+  },
+  {
+    "type": "int_type_suffix",
+    "named": true
+  },
+  {
+    "type": "macro",
+    "named": false
+  },
+  {
+    "type": "mul_op",
+    "named": true
+  },
+  {
+    "type": "non_exhaustive_marker",
+    "named": true
+  },
+  {
+    "type": "public",
+    "named": false
+  },
+  {
+    "type": "secret",
+    "named": false
+  },
+  {
+    "type": "signed",
+    "named": true
+  },
+  {
+    "type": "string",
+    "named": true
+  },
+  {
+    "type": "sub_op",
+    "named": true
+  },
+  {
+    "type": "tail",
+    "named": true
+  },
+  {
+    "type": "uleb128",
+    "named": true
+  },
+  {
+    "type": "unsigned",
+    "named": true
+  },
+  {
+    "type": "vec",
+    "named": true
+  },
+  {
+    "type": "wrap",
+    "named": false
+  },
+  {
+    "type": "{",
+    "named": false
+  },
+  {
+    "type": "|",
+    "named": false
+  },
+  {
+    "type": "}",
+    "named": false
+  }
+]

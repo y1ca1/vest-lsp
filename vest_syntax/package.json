@@ -1,0 +1,20 @@
+{
+  "name": "vest",
+  "version": "0.1.0",
+  "main": "grammar.js",
+  "dependencies": {
+    "tree-sitter-cli": "^0.25.0"
+  },
+  "scripts": {
+    "generate": "tree-sitter generate",
+    "test": "tree-sitter test",
+    "build": "tree-sitter generate && tree-sitter test"
+  },
+  "tree-sitter": [
+    {
+      "scope": "source.vest",
+      "file-types": ["vest"],
+      "highlights": "queries/highlights.scm"
+    }
+  ]
+}

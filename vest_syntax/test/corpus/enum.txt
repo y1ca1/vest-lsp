@@ -1,0 +1,71 @@
+================================================================================
+Simple enum definition
+================================================================================
+
+my_enum = enum {
+  A = 0,
+  B = 1,
+  C = 2,
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (definition
+    (combinator_defn
+      name: (var_id (identifier))
+      body: (combinator
+        (combinator_inner
+          (enum_combinator
+            (exhaustive_enum
+              (enum_field (variant_id (identifier)) (typed_const_int (const_int (decimal))))
+              (enum_field (variant_id (identifier)) (typed_const_int (const_int (decimal))))
+              (enum_field (variant_id (identifier)) (typed_const_int (const_int (decimal)))))))))))
+
+================================================================================
+Open enum with ellipsis
+================================================================================
+
+open_enum = enum {
+  X = 0,
+  Y = 1,
+  ...
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (definition
+    (combinator_defn
+      name: (var_id (identifier))
+      body: (combinator
+        (combinator_inner
+          (enum_combinator
+            (non_exhaustive_enum
+              (enum_field (variant_id (identifier)) (typed_const_int (const_int (decimal))))
+              (enum_field (variant_id (identifier)) (typed_const_int (const_int (decimal))))
+              (non_exhaustive_marker))))))))
+
+================================================================================
+Typed enum with suffix
+================================================================================
+
+typed_enum = enum {
+  P = 0u16,
+  Q = 1,
+  R = 2u16,
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (definition
+    (combinator_defn
+      name: (var_id (identifier))
+      body: (combinator
+        (combinator_inner
+          (enum_combinator
+            (exhaustive_enum
+              (enum_field (variant_id (identifier)) (typed_const_int (const_int (decimal)) (int_type_suffix)))
+              (enum_field (variant_id (identifier)) (typed_const_int (const_int (decimal))))
+              (enum_field (variant_id (identifier)) (typed_const_int (const_int (decimal)) (int_type_suffix))))))))))

@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = ["vest_lsp", "vest_syntax", "vest_db"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+authors = ["Vest Team"]
+license = "MIT"
+repository = "https://github.com/vest-dsl/vest-lsp"
+
+[workspace.dependencies]
+tree-sitter = "0.25"

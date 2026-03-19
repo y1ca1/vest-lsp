@@ -1,0 +1,91 @@
+================================================================================
+Length with size expression
+================================================================================
+
+sized = {
+  data: [u8; |header|],
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (definition
+    (combinator_defn
+      name: (var_id (identifier))
+      body: (combinator
+        (combinator_inner
+          (struct_combinator
+            (field
+              (var_id (identifier))
+              (combinator
+                (combinator_inner
+                  (array_combinator
+                    (combinator (combinator_inner (constraint_int_combinator (int_combinator))))
+                    (length_expr
+                      (length_term
+                        (length_atom
+                          (size_expr (size_target (identifier))))))))))))))))
+
+================================================================================
+Length with arithmetic
+================================================================================
+
+arith = {
+  body: [u8; @len - |header| + 4],
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (definition
+    (combinator_defn
+      name: (var_id (identifier))
+      body: (combinator
+        (combinator_inner
+          (struct_combinator
+            (field
+              (var_id (identifier))
+              (combinator
+                (combinator_inner
+                  (array_combinator
+                    (combinator (combinator_inner (constraint_int_combinator (int_combinator))))
+                    (length_expr
+                      (length_term (length_atom (depend_id)))
+                      (sub_op)
+                      (length_term (length_atom (size_expr (size_target (identifier)))))
+                      (add_op)
+                      (length_term (length_atom (const_int (decimal)))))))))))))))
+
+================================================================================
+Length with multiplication and parentheses
+================================================================================
+
+complex = {
+  items: [u8; (@count * @size) / 4],
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (definition
+    (combinator_defn
+      name: (var_id (identifier))
+      body: (combinator
+        (combinator_inner
+          (struct_combinator
+            (field
+              (var_id (identifier))
+              (combinator
+                (combinator_inner
+                  (array_combinator
+                    (combinator (combinator_inner (constraint_int_combinator (int_combinator))))
+                    (length_expr
+                      (length_term
+                        (length_atom
+                          (length_expr
+                            (length_term
+                              (length_atom (depend_id))
+                              (mul_op)
+                              (length_atom (depend_id)))))
+                        (div_op)
+                        (length_atom (const_int (decimal)))))))))))))))

@@ -1,0 +1,75 @@
+================================================================================
+Dependent choice combinator
+================================================================================
+
+my_choice(@tag: my_enum) = choose(@tag) {
+  A => u8,
+  B => u16,
+  _ => Tail,
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (definition
+    (combinator_defn
+      name: (var_id (identifier))
+      (param_defn_list
+        (param_defn
+          (depend_id)
+          (combinator_inner
+            (combinator_invocation (var_id (identifier))))))
+      body: (combinator
+        (combinator_inner
+          (choice_combinator
+            (depend_id)
+            (choice_arm
+              (variant_id (identifier))
+              (combinator (combinator_inner (constraint_int_combinator (int_combinator)))))
+            (choice_arm
+              (variant_id (identifier))
+              (combinator (combinator_inner (constraint_int_combinator (int_combinator)))))
+            (choice_arm
+              (variant_id)
+              (combinator (combinator_inner (tail_combinator (tail)))))))))))
+
+================================================================================
+Non-dependent choice combinator
+================================================================================
+
+tagged_choice = choose {
+  Tag1(u8 | 0..10),
+  Tag2(u8 | 11..20),
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (definition
+    (combinator_defn
+      name: (var_id (identifier))
+      body: (combinator
+        (combinator_inner
+          (choice_combinator
+            (choice_arm
+              (variant_id (identifier))
+              (combinator
+                (combinator_inner
+                  (constraint_int_combinator
+                    (int_combinator)
+                    (int_constraint
+                      (constraint_elem
+                        (const_int_range
+                          (const_int (decimal))
+                          (const_int (decimal)))))))))
+            (choice_arm
+              (variant_id (identifier))
+              (combinator
+                (combinator_inner
+                  (constraint_int_combinator
+                    (int_combinator)
+                    (int_constraint
+                      (constraint_elem
+                        (const_int_range
+                          (const_int (decimal))
+                          (const_int (decimal)))))))))))))))

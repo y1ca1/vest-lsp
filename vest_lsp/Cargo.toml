@@ -1,0 +1,9 @@
+[package]
+name = "vest_lsp"
+version.workspace = true
+edition.workspace = true
+description = "Language server for Vest DSL"
+
+[dependencies]
+vest_syntax = { path = "../vest_syntax" }
+vest_db = { path = "../vest_db" }

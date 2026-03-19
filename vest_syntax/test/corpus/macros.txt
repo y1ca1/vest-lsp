@@ -1,0 +1,45 @@
+================================================================================
+Macro definition
+================================================================================
+
+macro make_pair!(T, U) = {
+  first: T,
+  second: U,
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (definition
+    (macro_defn
+      name: (var_id (identifier))
+      (macro_param_list (var_id (identifier)) (var_id (identifier)))
+      body: (combinator
+        (combinator_inner
+          (struct_combinator
+            (field
+              (var_id (identifier))
+              (combinator (combinator_inner (combinator_invocation (var_id (identifier))))))
+            (field
+              (var_id (identifier))
+              (combinator (combinator_inner (combinator_invocation (var_id (identifier))))))))))))
+
+================================================================================
+Macro invocation
+================================================================================
+
+pair = make_pair!(u8, u16)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (definition
+    (combinator_defn
+      name: (var_id (identifier))
+      body: (combinator
+        (combinator_inner
+          (macro_invocation
+            (var_id (identifier))
+            (macro_arg_list
+              (combinator_inner (constraint_int_combinator (int_combinator)))
+              (combinator_inner (constraint_int_combinator (int_combinator))))))))))

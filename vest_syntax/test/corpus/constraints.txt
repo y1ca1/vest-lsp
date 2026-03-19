@@ -1,0 +1,64 @@
+================================================================================
+Integer constraint with range
+================================================================================
+
+constrained = u8 | 1..100
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (definition
+    (combinator_defn
+      name: (var_id (identifier))
+      body: (combinator
+        (combinator_inner
+          (constraint_int_combinator
+            (int_combinator)
+            (int_constraint
+              (constraint_elem
+                (const_int_range
+                  (const_int (decimal))
+                  (const_int (decimal)))))))))))
+
+================================================================================
+Integer constraint with set
+================================================================================
+
+limited = u16 | {1, 2, 5..10, 100}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (definition
+    (combinator_defn
+      name: (var_id (identifier))
+      body: (combinator
+        (combinator_inner
+          (constraint_int_combinator
+            (int_combinator)
+            (int_constraint
+              (constraint_elem_set
+                (constraint_elem (const_int (decimal)))
+                (constraint_elem (const_int (decimal)))
+                (constraint_elem (const_int_range (const_int (decimal)) (const_int (decimal))))
+                (constraint_elem (const_int (decimal)))))))))))
+
+================================================================================
+Negated constraint
+================================================================================
+
+not_zero = u8 | !0
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (definition
+    (combinator_defn
+      name: (var_id (identifier))
+      body: (combinator
+        (combinator_inner
+          (constraint_int_combinator
+            (int_combinator)
+            (int_constraint
+              (int_constraint
+                (constraint_elem (const_int (decimal)))))))))))

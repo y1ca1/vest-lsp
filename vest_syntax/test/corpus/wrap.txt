@@ -1,0 +1,52 @@
+================================================================================
+Wrap combinator with const values
+================================================================================
+
+wrapped = wrap(u8 = 1, inner, u8 = 0)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (definition
+    (combinator_defn
+      name: (var_id (identifier))
+      body: (combinator
+        (combinator_inner
+          (wrap_combinator
+            (wrap_args
+              (wrap_arg
+                (const_int_combinator (int_combinator) (const_int (decimal))))
+              (wrap_arg
+                (combinator (combinator_inner (combinator_invocation (var_id (identifier))))))
+              (wrap_arg
+                (const_int_combinator (int_combinator) (const_int (decimal)))))))))))
+
+================================================================================
+Wrap with const bytes array
+================================================================================
+
+wrapped_bytes = wrap([u8; 4] = [1, 2, 3, 4], data)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (definition
+    (combinator_defn
+      name: (var_id (identifier))
+      body: (combinator
+        (combinator_inner
+          (wrap_combinator
+            (wrap_args
+              (wrap_arg
+                (const_bytes_or_array
+                  (combinator (combinator_inner (constraint_int_combinator (int_combinator))))
+                  (length_expr (length_term (length_atom (const_int (decimal)))))
+                  (const_array
+                    (const_int_array
+                      (int_array_expr
+                        (const_int (decimal))
+                        (const_int (decimal))
+                        (const_int (decimal))
+                        (const_int (decimal)))))))
+              (wrap_arg
+                (combinator (combinator_inner (combinator_invocation (var_id (identifier)))))))))))))
