@@ -21,5 +21,6 @@ tokio-util = { version = "0.7", features = ["compat"] }
 tower = "0.5"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
+salsa = "0.26"
 tree-sitter = "0.25"
 tree-sitter-language = "0.1"

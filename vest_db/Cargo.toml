@@ -6,5 +6,10 @@ description = "Salsa database for Vest LSP"
 
 [dependencies]
 lsp-types = { workspace = true }
+salsa = { workspace = true }
 thiserror = { workspace = true }
 tree-sitter = { workspace = true }
+vest_syntax = { path = "../vest_syntax" }
+
+[dev-dependencies]
+expect-test = { workspace = true }

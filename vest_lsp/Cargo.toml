@@ -12,6 +12,7 @@ tokio-util = { workspace = true }
 tower = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+thiserror = { workspace = true }
 tree-sitter = { workspace = true }
 vest_syntax = { path = "../vest_syntax" }
 vest_db = { path = "../vest_db" }

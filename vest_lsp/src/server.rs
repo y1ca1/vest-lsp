@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::ops::ControlFlow;
 
 use async_lsp::client_monitor::ClientProcessMonitorLayer;
@@ -22,22 +21,21 @@ use lsp_types::{
 };
 use tower::ServiceBuilder;
 use tracing::{Level, warn};
-use tree_sitter::Tree;
-use vest_db::{AppliedDocumentChange, SourceDatabase};
-use vest_syntax::{Parse, SemanticTokenKind, parse, parse_incremental};
+use vest_db::SourceDocument;
+use vest_syntax::{SemanticToken as SyntaxToken, SemanticTokenKind};
+
+use crate::workspace::{Workspace, WorkspaceError};
 
 pub struct VestServer {
     client: ClientSocket,
-    source_db: SourceDatabase,
-    parses: HashMap<Url, Parse>,
+    workspace: Workspace,
 }
 
 impl VestServer {
     pub fn new(client: ClientSocket) -> Self {
         Self {
             client,
-            source_db: SourceDatabase::new(),
-            parses: HashMap::new(),
+            workspace: Workspace::new(),
         }
     }
 
@@ -82,46 +80,32 @@ impl VestServer {
 
     pub fn open_document(&mut self, document: TextDocumentItem) -> Vec<Diagnostic> {
         let uri = document.uri.clone();
-        self.source_db
-            .open(uri.clone(), document.version, document.text);
-        self.parses.insert(
-            uri.clone(),
-            parse(
-                self.source_db
-                    .document(&uri)
-                    .expect("document opened")
-                    .text(),
-            ),
-        );
+        self.workspace.open_document(document);
         self.diagnostics_for(&uri)
     }
 
     pub fn change_document(
         &mut self,
         params: DidChangeTextDocumentParams,
-    ) -> Result<Vec<Diagnostic>, String> {
+    ) -> Result<Vec<Diagnostic>, WorkspaceError> {
         let uri = params.text_document.uri;
-        let version = params.text_document.version;
-        let previous_tree = self.parses.get(&uri).map(|parse| parse.tree().clone());
-        let edits = self
-            .source_db
-            .apply_changes(&uri, version, &params.content_changes)
-            .map_err(|err| err.to_string())?;
-
-        self.reparse_document(&uri, previous_tree, edits);
+        self.workspace.apply_document_changes(
+            &uri,
+            params.text_document.version,
+            &params.content_changes,
+        )?;
         Ok(self.diagnostics_for(&uri))
     }
 
     pub fn close_document(&mut self, params: DidCloseTextDocumentParams) {
-        self.parses.remove(&params.text_document.uri);
-        self.source_db.close(&params.text_document.uri);
+        self.workspace.close_document(&params.text_document.uri);
     }
 
     pub fn hover(&self, params: HoverParams) -> Option<Hover> {
         let uri = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
-        let document = self.source_db.document(&uri)?;
-        let parse = self.parses.get(&uri)?;
+        let document = self.workspace.document(&uri)?;
+        let parse = self.workspace.parse(&uri)?;
         let byte_offset = document.position_to_byte_offset(position).ok()?;
         let node = parse.node_at_byte(byte_offset)?;
         let snippet = document
@@ -130,10 +114,11 @@ impl VestServer {
             .unwrap_or("")
             .trim()
             .to_string();
+
         let detail = if snippet.is_empty() {
             format!("`{}`", node.kind())
         } else {
-            format!("```vest\n{snippet}\n```\n\nSyntax node: `{}`", node.kind())
+            format!("```vest\n{snippet}\n```\n\n`{}`", node.kind())
         };
 
         Some(Hover {
@@ -156,9 +141,9 @@ impl VestServer {
         params: SemanticTokensParams,
     ) -> Option<SemanticTokensResult> {
         let uri = params.text_document.uri;
-        let document = self.source_db.document(&uri)?;
-        let parse = self.parses.get(&uri)?;
-        let data = encode_semantic_tokens(parse, document)?;
+        let document = self.workspace.document(&uri)?;
+        let parse = self.workspace.parse(&uri)?;
+        let data = encode_semantic_tokens(parse.semantic_tokens(), document)?;
 
         Some(SemanticTokensResult::Tokens(SemanticTokens {
             result_id: None,
@@ -167,10 +152,10 @@ impl VestServer {
     }
 
     pub fn diagnostics_for(&self, uri: &Url) -> Vec<Diagnostic> {
-        let Some(document) = self.source_db.document(uri) else {
+        let Some(document) = self.workspace.document(uri) else {
             return Vec::new();
         };
-        let Some(parse) = self.parses.get(uri) else {
+        let Some(parse) = self.workspace.parse(uri) else {
             return Vec::new();
         };
 
@@ -209,25 +194,9 @@ impl VestServer {
         }
     }
 
-    fn reparse_document(
-        &mut self,
-        uri: &Url,
-        mut previous_tree: Option<Tree>,
-        edits: Vec<AppliedDocumentChange>,
-    ) {
-        if let Some(tree) = previous_tree.as_mut() {
-            for edit in edits {
-                tree.edit(&edit.input_edit);
-            }
-        }
-
-        if let Some(document) = self.source_db.document(uri) {
-            let parse = match previous_tree.as_ref() {
-                Some(tree) => parse_incremental(document.text(), Some(tree)),
-                None => parse(document.text()),
-            };
-            self.parses.insert(uri.clone(), parse);
-        }
+    #[allow(dead_code)]
+    pub fn contains(&self, uri: &Url) -> bool {
+        self.workspace.contains(uri)
     }
 }
 
@@ -405,14 +374,14 @@ fn semantic_token_modifiers(kind: SemanticTokenKind) -> u32 {
 }
 
 fn encode_semantic_tokens(
-    parse: &Parse,
-    document: &vest_db::SourceDocument,
+    tokens: &[SyntaxToken],
+    document: &SourceDocument,
 ) -> Option<Vec<SemanticToken>> {
     let mut data = Vec::new();
     let mut last_line = 0;
     let mut last_start = 0;
 
-    for token in parse.semantic_tokens(document.text()) {
+    for token in tokens {
         let range = document
             .byte_range_to_lsp_range(token.start_byte, token.end_byte)
             .ok()?;
@@ -519,7 +488,7 @@ mod tests {
             .change_document(DidChangeTextDocumentParams {
                 text_document: lsp_types::VersionedTextDocumentIdentifier { uri, version: 2 },
                 content_changes: vec![TextDocumentContentChangeEvent {
-                    range: Some(Range::new(Position::new(1, 10), Position::new(1, 12))),
+                    range: Some(Range::new(Position::new(1, 11), Position::new(1, 13))),
                     range_length: None,
                     text: "u16".into(),
                 }],
@@ -573,14 +542,34 @@ Unexpected end of file @ 1:13-1:13"#]]
         let mut server = server();
         open_document(&mut server, &uri, 1, "packet = {}\n");
 
-        assert!(server.source_db.contains(&uri));
-        assert!(server.parses.contains_key(&uri));
+        assert!(server.contains(&uri));
 
         server.close_document(lsp_types::DidCloseTextDocumentParams {
             text_document: TextDocumentIdentifier { uri: uri.clone() },
         });
 
-        assert!(!server.source_db.contains(&uri));
-        assert!(!server.parses.contains_key(&uri));
+        assert!(!server.contains(&uri));
+    }
+
+    #[test]
+    fn changing_a_missing_document_returns_a_workspace_error() {
+        let uri = uri("missing");
+        let mut server = server();
+
+        let err = server
+            .change_document(DidChangeTextDocumentParams {
+                text_document: lsp_types::VersionedTextDocumentIdentifier { uri, version: 1 },
+                content_changes: vec![TextDocumentContentChangeEvent {
+                    range: None,
+                    range_length: None,
+                    text: "packet = {}\n".into(),
+                }],
+            })
+            .unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "document is not open: file:///tmp/missing.vest"
+        );
     }
 }

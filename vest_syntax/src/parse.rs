@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator, Tree};
+use tree_sitter::{InputEdit, Node, Parser, Query, QueryCursor, StreamingIterator, Tree};
 
 use crate::{HIGHLIGHTS_QUERY, language};
 
@@ -8,6 +8,7 @@ use crate::{HIGHLIGHTS_QUERY, language};
 pub struct Parse {
     tree: Tree,
     diagnostics: Vec<SyntaxDiagnostic>,
+    semantic_tokens: Vec<SemanticToken>,
 }
 
 impl Parse {
@@ -34,12 +35,12 @@ impl Parse {
             })
     }
 
-    pub fn semantic_tokens(&self, source: &str) -> Vec<SemanticToken> {
-        collect_semantic_tokens(&self.tree, source)
+    pub fn semantic_tokens(&self) -> &[SemanticToken] {
+        &self.semantic_tokens
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SyntaxDiagnostic {
     pub message: String,
     pub start_byte: usize,
@@ -64,7 +65,7 @@ pub enum SemanticTokenKind {
     Comment,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SemanticToken {
     pub kind: SemanticTokenKind,
     pub start_byte: usize,
@@ -73,6 +74,21 @@ pub struct SemanticToken {
 
 pub fn parse(source: &str) -> Parse {
     parse_incremental(source, None)
+}
+
+pub fn parse_with_edits(
+    source: &str,
+    previous_parse: Option<&Parse>,
+    edits: &[InputEdit],
+) -> Parse {
+    let mut previous_tree = previous_parse.map(|parse| parse.tree.clone());
+    if let Some(tree) = previous_tree.as_mut() {
+        for edit in edits {
+            tree.edit(edit);
+        }
+    }
+
+    parse_incremental(source, previous_tree.as_ref())
 }
 
 pub fn parse_incremental(source: &str, previous_tree: Option<&Tree>) -> Parse {
@@ -85,8 +101,13 @@ pub fn parse_incremental(source: &str, previous_tree: Option<&Tree>) -> Parse {
         .parse(source, previous_tree)
         .expect("Vest parser returned no syntax tree");
     let diagnostics = collect_syntax_diagnostics(tree.root_node(), source);
+    let semantic_tokens = collect_semantic_tokens(&tree, source);
 
-    Parse { tree, diagnostics }
+    Parse {
+        tree,
+        diagnostics,
+        semantic_tokens,
+    }
 }
 
 fn collect_syntax_diagnostics(root: Node<'_>, source: &str) -> Vec<SyntaxDiagnostic> {

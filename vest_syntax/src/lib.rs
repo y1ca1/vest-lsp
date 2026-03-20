@@ -4,6 +4,7 @@ use tree_sitter_language::LanguageFn;
 
 pub use parse::{
     Parse, SemanticToken, SemanticTokenKind, SyntaxDiagnostic, parse, parse_incremental,
+    parse_with_edits,
 };
 
 unsafe extern "C" {
@@ -21,8 +22,9 @@ pub fn language() -> tree_sitter::Language {
 #[cfg(test)]
 mod tests {
     use expect_test::expect;
+    use tree_sitter::{InputEdit, Point};
 
-    use crate::{SemanticTokenKind, parse};
+    use crate::{SemanticTokenKind, parse, parse_with_edits};
 
     #[test]
     fn grammar_loads() {
@@ -72,7 +74,7 @@ Unexpected end of file @ 24..24"#]]
         let source = "macro wrap_packet!(item) = wrap(u8 = 1, item)\n";
         let parse = parse(source);
         let rendered = parse
-            .semantic_tokens(source)
+            .semantic_tokens()
             .iter()
             .map(|token| format!("{:?}@{}..{}", token.kind, token.start_byte, token.end_byte))
             .collect::<Vec<_>>()
@@ -97,15 +99,40 @@ Function@40..44"#]]
         let parse = parse(source);
         assert!(
             parse
-                .semantic_tokens(source)
+                .semantic_tokens()
                 .iter()
                 .any(|token| token.kind == SemanticTokenKind::Parameter)
         );
         assert!(
             parse
-                .semantic_tokens(source)
+                .semantic_tokens()
                 .iter()
                 .any(|token| token.kind == SemanticTokenKind::Number)
         );
+    }
+
+    #[test]
+    fn incremental_reparse_matches_full_reparse() {
+        let original = "packet = {\n    field: u8,\n}\n";
+        let updated = "packet = {\n    field: u16,\n}\n";
+        let initial = parse(original);
+
+        let reparsed = parse_with_edits(
+            updated,
+            Some(&initial),
+            &[InputEdit {
+                start_byte: 22,
+                old_end_byte: 24,
+                new_end_byte: 25,
+                start_position: Point::new(1, 11),
+                old_end_position: Point::new(1, 13),
+                new_end_position: Point::new(1, 14),
+            }],
+        );
+        let fresh = parse(updated);
+
+        assert_eq!(reparsed.root_node().to_sexp(), fresh.root_node().to_sexp());
+        assert_eq!(reparsed.diagnostics(), fresh.diagnostics());
+        assert_eq!(reparsed.semantic_tokens(), fresh.semantic_tokens());
     }
 }
