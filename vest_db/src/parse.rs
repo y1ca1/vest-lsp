@@ -1,10 +1,13 @@
-//! Parse query: derives cached syntax metadata from source text.
+//! Staged Salsa query layer for syntax-derived metadata.
+//!
+//! The live LSP loop currently keeps its incremental Tree-sitter state outside Salsa.
+//! These queries are kept for the milestone-3 analysis boundary and later HIR work.
 
 use crate::SourceFile;
 
-/// Cached parse metadata for a source file.
+/// Cached syntax metadata for a source file.
 #[salsa::tracked]
-pub struct ParseResult<'db> {
+pub struct ParseSummary<'db> {
     /// The source file this was parsed from.
     pub source: SourceFile,
 
@@ -20,8 +23,8 @@ pub struct ParseResult<'db> {
     pub has_errors: bool,
 }
 
-impl<'db> ParseResult<'db> {
-    /// Get the syntax tree for this parse result.
+impl<'db> ParseSummary<'db> {
+    /// Get the syntax tree for this summary.
     /// Tree-sitter trees stay outside Salsa because they contain internal pointers.
     /// Higher layers keep transient incremental trees when they need CST access.
     pub fn tree(&self, db: &'db dyn crate::Db) -> tree_sitter::Tree {
@@ -31,14 +34,14 @@ impl<'db> ParseResult<'db> {
 }
 /// Parse a source file into cached syntax metadata.
 #[salsa::tracked]
-pub fn parse_file<'db>(db: &'db dyn crate::Db, source: SourceFile) -> ParseResult<'db> {
+pub fn parse_file<'db>(db: &'db dyn crate::Db, source: SourceFile) -> ParseSummary<'db> {
     let text = source.text(db);
     let parse = vest_syntax::parse(text);
     let diagnostics = parse.diagnostics().to_vec();
     let semantic_tokens = parse.semantic_tokens().to_vec();
     let has_errors = parse.root_node().has_error();
 
-    ParseResult::new(db, source, diagnostics, semantic_tokens, has_errors)
+    ParseSummary::new(db, source, diagnostics, semantic_tokens, has_errors)
 }
 
 #[cfg(test)]
@@ -87,7 +90,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_result_is_memoized() {
+    fn parse_summary_is_memoized() {
         let db = Database::new();
         let source = SourceFile::new(
             &db,
@@ -96,17 +99,17 @@ mod tests {
             "packet = { field: u8, }\n".into(),
         );
 
-        // Call parse_file twice - should return cached result
+        // Call parse_file twice - should return the cached summary
         let result1 = parse_file(&db, source);
         let result2 = parse_file(&db, source);
 
-        // Results should be equal (same cached result)
+        // Results should be equal (same cached summary)
         assert_eq!(result1.has_errors(&db), result2.has_errors(&db));
         assert_eq!(result1.diagnostics(&db), result2.diagnostics(&db));
     }
 
     #[test]
-    fn parse_result_invalidated_on_text_change() {
+    fn parse_summary_is_invalidated_on_text_change() {
         let mut db = Database::new();
         let source = SourceFile::new(
             &db,

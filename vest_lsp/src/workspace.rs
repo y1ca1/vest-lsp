@@ -3,19 +3,18 @@ use std::collections::HashMap;
 use lsp_types::{TextDocumentContentChangeEvent, TextDocumentItem, Url};
 use thiserror::Error;
 use tree_sitter::InputEdit;
-use vest_db::{
-    Database, ParseResult, Setter, SourceDatabase, SourceDocument, SourceError, SourceFile,
-    parse_file,
-};
+use vest_db::{SourceDatabase, SourceDocument, SourceError};
 use vest_syntax::{Parse, parse, parse_with_edits};
 
 struct DocumentState {
-    source: SourceFile,
     parse: Parse,
 }
 
+/// Authoritative hot-path state for the current LSP session.
+///
+/// This keeps editor-facing text state and the live incremental CST cache together.
+/// Salsa-backed analysis is staged separately until HIR exists.
 pub struct Workspace {
-    db: Database,
     sources: SourceDatabase,
     documents: HashMap<Url, DocumentState>,
     revision: u64,
@@ -24,7 +23,6 @@ pub struct Workspace {
 impl Workspace {
     pub fn new() -> Self {
         Self {
-            db: Database::new(),
             sources: SourceDatabase::new(),
             documents: HashMap::new(),
             revision: 0,
@@ -42,18 +40,9 @@ impl Workspace {
 
         self.sources.open(uri.clone(), version, text.clone());
 
-        let source = match self.documents.get(&uri).map(|state| state.source) {
-            Some(source) => {
-                self.write_source_file(source, version, &text);
-                source
-            }
-            None => SourceFile::new(&self.db, uri.to_string(), version, text.clone()),
-        };
-
         self.documents.insert(
             uri,
             DocumentState {
-                source,
                 parse: parse(&text),
             },
         );
@@ -66,11 +55,6 @@ impl Workspace {
         version: i32,
         changes: &[TextDocumentContentChangeEvent],
     ) -> Result<(), WorkspaceError> {
-        let source = self
-            .documents
-            .get(uri)
-            .map(|state| state.source)
-            .ok_or_else(|| WorkspaceError::DocumentNotOpen(uri.clone()))?;
         let previous_parse = self
             .documents
             .get(uri)
@@ -84,8 +68,6 @@ impl Workspace {
             .ok_or_else(|| WorkspaceError::DocumentNotOpen(uri.clone()))?
             .text()
             .to_owned();
-
-        self.write_source_file(source, version, &text);
 
         let input_edits: Vec<InputEdit> = edits.into_iter().map(|edit| edit.input_edit).collect();
         let updated_parse = parse_with_edits(&text, Some(&previous_parse), &input_edits);
@@ -118,16 +100,6 @@ impl Workspace {
 
     pub fn parse(&self, uri: &Url) -> Option<&Parse> {
         self.documents.get(uri).map(|state| &state.parse)
-    }
-
-    pub fn analysis(&self, uri: &Url) -> Option<ParseResult<'_>> {
-        let source = self.documents.get(uri)?.source;
-        Some(parse_file(&self.db, source))
-    }
-
-    fn write_source_file(&mut self, source: SourceFile, version: i32, text: &str) {
-        source.set_version(&mut self.db).to(version);
-        source.set_text(&mut self.db).to(text.to_owned());
     }
 
     fn bump_revision(&mut self) {
@@ -211,13 +183,13 @@ mod tests {
     }
 
     #[test]
-    fn analysis_query_tracks_incremental_updates() {
+    fn incremental_parse_tracks_incremental_updates() {
         let uri = uri("broken");
         let mut workspace = Workspace::new();
 
         workspace.open_document(document(&uri, 1, "packet = {\n    field: u8,\n}\n"));
-        let result1 = workspace.analysis(&uri).unwrap();
-        assert!(result1.diagnostics(&workspace.db).is_empty());
+        let parse1 = workspace.parse(&uri).unwrap();
+        assert!(parse1.diagnostics().is_empty());
 
         workspace
             .apply_document_changes(
@@ -231,10 +203,10 @@ mod tests {
             )
             .unwrap();
 
-        let result2 = workspace.analysis(&uri).unwrap();
-        assert!(!result2.has_errors(&workspace.db));
-        assert!(result2.diagnostics(&workspace.db).is_empty());
-        assert!(result2.semantic_tokens(&workspace.db).iter().any(|token| {
+        let parse2 = workspace.parse(&uri).unwrap();
+        assert!(!parse2.root_node().has_error());
+        assert!(parse2.diagnostics().is_empty());
+        assert!(parse2.semantic_tokens().iter().any(|token| {
             token.kind == vest_syntax::SemanticTokenKind::Type
                 && &workspace.document(&uri).unwrap().text()[token.start_byte..token.end_byte]
                     == "u16"
@@ -252,9 +224,37 @@ mod tests {
             )
             .unwrap();
 
-        let result3 = workspace.analysis(&uri).unwrap();
-        assert!(result3.has_errors(&workspace.db));
-        assert!(!result3.diagnostics(&workspace.db).is_empty());
+        let parse3 = workspace.parse(&uri).unwrap();
+        assert!(parse3.root_node().has_error());
+        assert!(!parse3.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn full_document_replacement_refreshes_the_live_parse() {
+        let uri = uri("replace");
+        let mut workspace = Workspace::new();
+
+        workspace.open_document(document(&uri, 1, "packet = { field: u8, }\n"));
+
+        workspace
+            .apply_document_changes(
+                &uri,
+                2,
+                &[TextDocumentContentChangeEvent {
+                    range: None,
+                    range_length: None,
+                    text: "packet = {\n    field: u16,\n}\n".into(),
+                }],
+            )
+            .unwrap();
+
+        let parse = workspace.parse(&uri).unwrap();
+        assert!(!parse.root_node().has_error());
+        assert!(parse.semantic_tokens().iter().any(|token| {
+            token.kind == vest_syntax::SemanticTokenKind::Type
+                && &workspace.document(&uri).unwrap().text()[token.start_byte..token.end_byte]
+                    == "u16"
+        }));
     }
 
     #[test]
