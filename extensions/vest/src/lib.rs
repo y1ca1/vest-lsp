@@ -1,5 +1,8 @@
 use zed_extension_api as zed;
 
+const REPO_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
+const WORKSPACE_MANIFEST_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Cargo.toml");
+
 struct VestExtension;
 
 impl zed::Extension for VestExtension {
@@ -33,8 +36,7 @@ impl zed::Extension for VestExtension {
         }
 
         if worktree.which("cargo").is_some() {
-            let manifest_path = format!("{}/Cargo.toml", worktree.root_path());
-            return Ok(zed::Command::new("cargo")
+            return Ok(zed::Command::new(worktree.which("cargo").unwrap())
                 .args([
                     "run",
                     "--quiet",
@@ -43,8 +45,9 @@ impl zed::Extension for VestExtension {
                     "--bin",
                     "vest_lsp",
                     "--manifest-path",
-                    manifest_path.as_str(),
+                    WORKSPACE_MANIFEST_PATH,
                 ])
+                .env("CARGO_MANIFEST_DIR", REPO_ROOT)
                 .envs(worktree.shell_env()));
         }
 

@@ -21,7 +21,7 @@ target
 #.idea/
 
 # Zed extension: grammar repository clone (managed by Zed's extension builder)
-extensions/vest/grammars/vest/
+extensions/vest/grammars/
 
 # Zed
 .zed/

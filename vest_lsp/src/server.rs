@@ -284,6 +284,7 @@ pub async fn run_stdio_server() -> async_lsp::Result<()> {
                 }
                 ControlFlow::Continue(())
             })
+            .notification::<notification::DidChangeConfiguration>(|_, _| ControlFlow::Continue(()))
             .notification::<notification::DidCloseTextDocument>(|state, params| {
                 let uri = params.text_document.uri.clone();
                 state.close_document(params);
@@ -472,20 +473,6 @@ mod tests {
             version,
             text: text.into(),
         })
-    }
-
-    fn full_change(uri: &Url, version: i32, text: &str) -> DidChangeTextDocumentParams {
-        DidChangeTextDocumentParams {
-            text_document: lsp_types::VersionedTextDocumentIdentifier {
-                uri: uri.clone(),
-                version,
-            },
-            content_changes: vec![TextDocumentContentChangeEvent {
-                range: None,
-                range_length: None,
-                text: text.into(),
-            }],
-        }
     }
 
     #[test]

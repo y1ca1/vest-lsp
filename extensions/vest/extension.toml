@@ -4,11 +4,11 @@ description = "Language support for Vest DSL - a parser and serializer generator
 version = "0.1.0"
 schema_version = 1
 authors = ["Vest Team"]
-repository = "https://github.com/vest-dsl/vest-lsp"
+repository = "https://github.com/y1ca1/vest-lsp"
 
 [grammars.vest]
-repository = "https://github.com/vest-dsl/vest-lsp"
-rev = "main"
+repository = "https://github.com/y1ca1/vest-lsp"
+rev = "4273a4ed2dbc265272639c30ac37ca3f50c20d36"
 path = "vest_syntax"
 
 [language.vest]
