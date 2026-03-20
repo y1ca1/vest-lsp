@@ -5,5 +5,16 @@ edition.workspace = true
 description = "Language server for Vest DSL"
 
 [dependencies]
+async-lsp = { workspace = true }
+lsp-types = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tower = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tree-sitter = { workspace = true }
 vest_syntax = { path = "../vest_syntax" }
 vest_db = { path = "../vest_db" }
+
+[dev-dependencies]
+expect-test = { workspace = true }

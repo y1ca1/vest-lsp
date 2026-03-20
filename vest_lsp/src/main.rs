@@ -1,7 +1,6 @@
-//! Vest Language Server
-//!
-//! A language server for the Vest DSL, providing IDE features for binary format definitions.
-
-pub fn main() {
-    println!("vest_lsp: placeholder");
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
+    vest_lsp::run_stdio_server()
+        .await
+        .expect("Vest LSP exited with an error");
 }

@@ -1,6 +1,3 @@
-//! Vest Database
-//!
-//! Salsa-based incremental computation database for the Vest LSP.
-//! This is a stub for milestone 1; will be expanded in milestone 3.
+mod source;
 
-pub fn placeholder() {}
+pub use source::{AppliedDocumentChange, ByteSpan, SourceDatabase, SourceDocument, SourceError};

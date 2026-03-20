@@ -7,13 +7,14 @@ build = "build.rs"
 include = ["bindings/rust/*", "grammar.js", "queries/*", "src/*"]
 
 [lib]
-path = "bindings/rust/lib.rs"
+path = "src/lib.rs"
 
 [dependencies]
-tree-sitter-language = "0.1"
+tree-sitter = { workspace = true }
+tree-sitter-language = { workspace = true }
 
 [dev-dependencies]
-tree-sitter = { workspace = true }
+expect-test = { workspace = true }
 
 [build-dependencies]
 cc = "1"

@@ -5,3 +5,6 @@ edition.workspace = true
 description = "Salsa database for Vest LSP"
 
 [dependencies]
+lsp-types = { workspace = true }
+thiserror = { workspace = true }
+tree-sitter = { workspace = true }

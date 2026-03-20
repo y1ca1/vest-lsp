@@ -6,10 +6,25 @@ schema_version = 1
 authors = ["Vest Team"]
 repository = "https://github.com/vest-dsl/vest-lsp"
 
+[grammars.vest]
+repository = "https://github.com/vest-dsl/vest-lsp"
+rev = "main"
+path = "vest_syntax"
+
+[language.vest]
+name = "Vest"
+grammar = "vest"
+path_suffixes = ["vest"]
+line_comments = ["// "]
+block_comment = ["/*", "*/"]
+brackets = [
+  { start = "{", end = "}", close = true, newline = true },
+  { start = "[", end = "]", close = true, newline = false },
+  { start = "(", end = ")", close = true, newline = false },
+  { start = "<", end = ">", close = true, newline = false },
+]
+word_characters = ["@"]
+
 [language_servers.vest-lsp]
 name = "Vest LSP"
 languages = ["Vest"]
-
-[grammars.vest]
-repository = "https://github.com/vest-dsl/vest-lsp"
-path = "vest_syntax"
