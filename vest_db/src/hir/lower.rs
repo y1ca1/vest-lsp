@@ -10,11 +10,22 @@ use crate::{Db, SourceFile};
 
 /// Lower a source file to HIR.
 pub fn lower_to_hir<'db>(db: &'db dyn Db, source: SourceFile) -> FileHir<'db> {
-    let summary = crate::parse_file(db, source);
     let text = source.text(db);
-    let tree = summary.tree(db);
-    let root = tree.root_node();
+    let parse = vest_syntax::parse(text);
+    lower_to_hir_with_parse(db, source, &parse)
+}
 
+/// Lower a source file to HIR using an existing parse tree.
+pub fn lower_to_hir_with_parse<'db>(
+    db: &'db dyn Db,
+    source: SourceFile,
+    parse: &vest_syntax::Parse,
+) -> FileHir<'db> {
+    let text = source.text(db);
+    lower_to_hir_with_root(db, text, parse.root_node())
+}
+
+fn lower_to_hir_with_root<'db>(db: &'db dyn Db, text: &str, root: Node<'_>) -> FileHir<'db> {
     let mut ctx = LoweringContext::new(db, text);
     ctx.lower_source_file(root);
 
@@ -108,6 +119,7 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
 
         if let Some(name_node) = name_node {
             let name = self.intern(self.node_text(name_node));
+            let name_span = Span::from_node(&name_node);
             let kind = if let Some(body_node) = body_node {
                 match self.lower_definition_body(body_node) {
                     LoweredDefinitionBody::Combinator(body) => {
@@ -126,6 +138,7 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
                 name,
                 visibility,
                 kind,
+                name_span,
                 span,
             });
         }
@@ -168,6 +181,7 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
 
     fn lower_const_defn(&mut self, node: Node<'_>) {
         let mut name = None;
+        let mut name_span = None;
         let mut ty = None;
         let mut value = None;
         let span = Span::from_node(&node);
@@ -177,6 +191,7 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
             match child.kind() {
                 "const_id" => {
                     name = Some(self.intern(self.node_text(child)));
+                    name_span = Some(Span::from_node(&child));
                 }
                 "const_combinator" => {
                     let (t, v) = self.lower_const_combinator(child);
@@ -187,11 +202,12 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
             }
         }
 
-        if let (Some(name), Some(ty), Some(value)) = (name, ty, value) {
+        if let (Some(name), Some(name_span), Some(ty), Some(value)) = (name, name_span, ty, value) {
             self.definitions.push(Definition {
                 name,
                 visibility: Visibility::Default,
                 kind: DefinitionKind::Const { ty, value },
+                name_span,
                 span,
             });
         }
@@ -210,12 +226,14 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
             name,
             visibility: Visibility::Default,
             kind: DefinitionKind::Endianness(endianness),
+            name_span: Span::from_node(&node),
             span: Span::from_node(&node),
         });
     }
 
     fn lower_macro_defn(&mut self, node: Node<'_>) {
         let mut name = None;
+        let mut name_span = None;
         let mut params = Vec::new();
         let mut body = None;
         let span = Span::from_node(&node);
@@ -225,6 +243,7 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
             match child.kind() {
                 "var_id" => {
                     name = Some(self.intern(self.node_text(child)));
+                    name_span = Some(Span::from_node(&child));
                 }
                 "macro_param_list" => {
                     params = self.lower_macro_param_list(child);
@@ -236,11 +255,12 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
             }
         }
 
-        if let (Some(name), Some(body)) = (name, body) {
+        if let (Some(name), Some(name_span), Some(body)) = (name, name_span, body) {
             self.definitions.push(Definition {
                 name,
                 visibility: Visibility::Default,
                 kind: DefinitionKind::Macro(MacroDef { params, body }),
+                name_span,
                 span,
             });
         }
@@ -261,8 +281,8 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
 
     fn lower_param_defn(&mut self, node: Node<'_>) -> Option<Param<'db>> {
         let mut name = None;
+        let mut span = None;
         let mut ty = None;
-        let span = Span::from_node(&node);
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -270,6 +290,7 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
                 "depend_id" => {
                     if let Some(binding) = dependent_binding_name(self.node_text(child)) {
                         name = Some(self.intern(binding));
+                        span = Some(Span::from_node(&child));
                     }
                 }
                 "combinator_inner" => {
@@ -279,8 +300,8 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
             }
         }
 
-        match (name, ty) {
-            (Some(name), Some(ty)) => Some(Param { name, ty, span }),
+        match (name, span, ty) {
+            (Some(name), Some(span), Some(ty)) => Some(Param { name, ty, span }),
             _ => None,
         }
     }
@@ -593,9 +614,9 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
         let mut is_const = false;
         let mut is_dependent = false;
         let mut name = None;
+        let mut span = None;
         let mut ty = None;
         let mut const_value = None;
-        let span = Span::from_node(&node);
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -605,10 +626,12 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
                     is_dependent = true;
                     if let Some(binding) = dependent_binding_name(self.node_text(child)) {
                         name = Some(self.intern(binding));
+                        span = Some(Span::from_node(&child));
                     }
                 }
                 "var_id" => {
                     name = Some(self.intern(self.node_text(child)));
+                    span = Some(Span::from_node(&child));
                 }
                 "combinator" => {
                     ty = Some(self.lower_combinator(child));
@@ -622,8 +645,8 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
             }
         }
 
-        match (name, ty) {
-            (Some(name), Some(ty)) => Some(Field {
+        match (name, span, ty) {
+            (Some(name), Some(span), Some(ty)) => Some(Field {
                 name,
                 is_dependent,
                 is_const,
@@ -1357,15 +1380,16 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
 
     fn lower_enum_field(&mut self, node: Node<'_>) -> Option<(EnumVariant<'db>, Option<IntType>)> {
         let mut name = None;
+        let mut span = None;
         let mut value = None;
         let mut repr_type = None;
-        let span = Span::from_node(&node);
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             match child.kind() {
                 "variant_id" => {
                     name = Some(self.intern(self.node_text(child)));
+                    span = Some(Span::from_node(&child));
                 }
                 "typed_const_int" => {
                     let (v, t) = self.lower_typed_const_int(child);
@@ -1376,8 +1400,10 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
             }
         }
 
-        match (name, value) {
-            (Some(name), Some(value)) => Some((EnumVariant { name, value, span }, repr_type)),
+        match (name, span, value) {
+            (Some(name), Some(span), Some(value)) => {
+                Some((EnumVariant { name, value, span }, repr_type))
+            }
             _ => None,
         }
     }
@@ -1416,8 +1442,9 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
 #[cfg(test)]
 mod tests {
     use expect_test::expect;
+    use tree_sitter::{InputEdit, Point};
 
-    use crate::{Database, SourceFile};
+    use crate::{Database, Setter, SourceFile};
 
     use super::*;
 
@@ -1427,6 +1454,37 @@ mod tests {
         let hir = lower_to_hir(&db, file);
         let result = format_definitions(&db, &hir);
         expected.assert_eq(&result);
+    }
+
+    #[test]
+    fn lower_to_hir_with_parse_matches_fresh_lowering_after_incremental_edit() {
+        let mut db = Database::new();
+        let file = SourceFile::new(
+            &db,
+            "test.vest".to_string(),
+            1,
+            "packet = {\n    field: u8,\n}\n".to_string(),
+        );
+        let initial = vest_syntax::parse(file.text(&db));
+        let updated = "packet = {\n    field: u16,\n}\n";
+        let parse = vest_syntax::parse_with_edits(
+            updated,
+            Some(&initial),
+            &[InputEdit {
+                start_byte: 22,
+                old_end_byte: 24,
+                new_end_byte: 25,
+                start_position: Point::new(1, 11),
+                old_end_position: Point::new(1, 13),
+                new_end_position: Point::new(1, 14),
+            }],
+        );
+        file.set_text(&mut db).to(updated.to_string());
+
+        let incremental = lower_to_hir_with_parse(&db, file, &parse);
+        let fresh = lower_to_hir(&db, file);
+
+        assert!(incremental == fresh);
     }
 
     fn format_definitions<'db>(db: &'db Database, hir: &FileHir<'db>) -> String {

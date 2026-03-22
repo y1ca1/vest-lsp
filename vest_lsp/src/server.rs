@@ -22,8 +22,8 @@ use lsp_types::{
 use tower::ServiceBuilder;
 use tracing::{Level, warn};
 use vest_db::{
-    Name, SourceDocument, Span, definition_at_offset, reference_name_text, resolve_local_symbol,
-    resolve_symbol,
+    Name, SourceDocument, Span, declaration_at_offset, definition_at_offset_in_hir,
+    lower_to_hir_with_parse, reference_name_text, resolve_local_symbol, resolve_symbol_in_hir,
 };
 use vest_syntax::{SemanticToken as SyntaxToken, SemanticTokenKind};
 
@@ -151,14 +151,17 @@ impl VestServer {
         let byte_offset = document.position_to_byte_offset(position).ok()?;
         let reference = reference_node(parse.node_at_byte(byte_offset)?)?;
         let name = reference_name(db, document, reference)?;
+        let hir = lower_to_hir_with_parse(db, source_file, parse);
 
-        if let Some(definition) = definition_at_offset(db, source_file, byte_offset)
-            && let Some(span) = resolve_local_symbol(db, &definition, name)
-        {
-            return location_for_span(&uri, document, span).map(GotoDefinitionResponse::Scalar);
+        if let Some(definition) = definition_at_offset_in_hir(&hir, byte_offset) {
+            if let Some(span) = declaration_at_offset(&definition, byte_offset)
+                .or_else(|| resolve_local_symbol(db, &definition, name))
+            {
+                return location_for_span(&uri, document, span).map(GotoDefinitionResponse::Scalar);
+            }
         }
 
-        let definition = resolve_symbol(db, source_file, name)?;
+        let definition = resolve_symbol_in_hir(&hir, name)?;
         location_for_span(&uri, document, definition.span).map(GotoDefinitionResponse::Scalar)
     }
 
@@ -785,6 +788,63 @@ Unexpected end of file @ 1:13-1:13"#]]
         assert_eq!(location.uri, uri);
         assert_eq!(location.range.start.line, 0);
         assert_eq!(location.range.start.character, 0);
+    }
+
+    #[test]
+    fn goto_definition_on_top_level_declaration_prefers_definition_name() {
+        let uri = uri("goto_decl");
+        let mut server = server();
+        open_document(&mut server, &uri, 1, "packet = {\n    packet: u8,\n}\n");
+
+        let definition = server
+            .goto_definition(GotoDefinitionParams {
+                text_document_position_params: lsp_types::TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri: uri.clone() },
+                    position: Position::new(0, 1),
+                },
+                work_done_progress_params: Default::default(),
+                partial_result_params: Default::default(),
+            })
+            .expect("definition should exist");
+
+        let GotoDefinitionResponse::Scalar(location) = definition else {
+            panic!("expected scalar location");
+        };
+
+        assert_eq!(location.uri, uri);
+        assert_eq!(location.range.start.line, 0);
+        assert_eq!(location.range.start.character, 0);
+    }
+
+    #[test]
+    fn goto_definition_on_field_declaration_prefers_field_over_shadowed_param() {
+        let uri = uri("goto_field_decl");
+        let mut server = server();
+        open_document(
+            &mut server,
+            &uri,
+            1,
+            "msg(@len: u16) = {\n    @len: u8,\n    data: [u8; @len],\n}\n",
+        );
+
+        let definition = server
+            .goto_definition(GotoDefinitionParams {
+                text_document_position_params: lsp_types::TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri: uri.clone() },
+                    position: Position::new(1, 5),
+                },
+                work_done_progress_params: Default::default(),
+                partial_result_params: Default::default(),
+            })
+            .expect("definition should exist");
+
+        let GotoDefinitionResponse::Scalar(location) = definition else {
+            panic!("expected scalar location");
+        };
+
+        assert_eq!(location.uri, uri);
+        assert_eq!(location.range.start.line, 1);
+        assert_eq!(location.range.start.character, 4);
     }
 
     #[test]

@@ -14,6 +14,11 @@ pub fn resolve_symbol<'db>(
     name: Name<'db>,
 ) -> Option<Definition<'db>> {
     let hir = lower_to_hir(db, source);
+    resolve_symbol_in_hir(&hir, name)
+}
+
+/// Resolve a symbol by name from an already-lowered HIR.
+pub fn resolve_symbol_in_hir<'db>(hir: &FileHir<'db>, name: Name<'db>) -> Option<Definition<'db>> {
     hir.definitions.iter().find(|def| def.name == name).cloned()
 }
 
@@ -68,6 +73,44 @@ pub fn resolve_local_symbol<'db>(
     }
 }
 
+/// Find the declaration directly under the cursor within a definition.
+pub fn declaration_at_offset<'db>(def: &Definition<'db>, byte_offset: usize) -> Option<Span> {
+    if def.name_span.contains(byte_offset) {
+        return Some(def.name_span);
+    }
+
+    match &def.kind {
+        DefinitionKind::Combinator { params, body } => {
+            for param in params {
+                if param.span.contains(byte_offset) {
+                    return Some(param.span);
+                }
+            }
+
+            if let Combinator::Struct(s) = body {
+                for field in &s.fields {
+                    if field.span.contains(byte_offset) {
+                        return Some(field.span);
+                    }
+                }
+            }
+
+            None
+        }
+        DefinitionKind::Enum(e) => e
+            .variants
+            .iter()
+            .find(|variant| variant.span.contains(byte_offset))
+            .map(|variant| variant.span),
+        DefinitionKind::Macro(m) => m
+            .params
+            .iter()
+            .find(|param| param.span.contains(byte_offset))
+            .map(|param| param.span),
+        _ => None,
+    }
+}
+
 /// Find all definitions in a file.
 pub fn file_definitions<'db>(db: &'db dyn Db, source: SourceFile) -> Vec<Definition<'db>> {
     let hir = lower_to_hir(db, source);
@@ -81,9 +124,17 @@ pub fn definition_at_offset<'db>(
     byte_offset: usize,
 ) -> Option<Definition<'db>> {
     let hir = lower_to_hir(db, source);
+    definition_at_offset_in_hir(&hir, byte_offset)
+}
+
+/// Find the enclosing top-level definition at a given byte offset from existing HIR.
+pub fn definition_at_offset_in_hir<'db>(
+    hir: &FileHir<'db>,
+    byte_offset: usize,
+) -> Option<Definition<'db>> {
     hir.definitions
         .iter()
-        .find(|def| def.span.start_byte <= byte_offset && byte_offset < def.span.end_byte)
+        .find(|def| def.span.contains(byte_offset))
         .cloned()
 }
 
@@ -245,6 +296,26 @@ mod tests {
         let variant_name = Name::new(&db, "A");
         let span = resolve_local_symbol(&db, &def, variant_name);
         assert!(span.is_some());
+    }
+
+    #[test]
+    fn declaration_at_offset_prefers_top_level_name_span() {
+        let (db, file) = setup("packet = { packet: u8, }\n");
+        let name = Name::new(&db, "packet");
+        let def = resolve_symbol(&db, file, name).unwrap();
+
+        let span = declaration_at_offset(&def, 1).unwrap();
+        assert_eq!(span, Span::new(0, 6));
+    }
+
+    #[test]
+    fn declaration_at_offset_prefers_field_name_over_shadowed_param() {
+        let (db, file) = setup("msg(@len: u16) = { @len: u8, data: [u8; @len], }\n");
+        let name = Name::new(&db, "msg");
+        let def = resolve_symbol(&db, file, name).unwrap();
+
+        let span = declaration_at_offset(&def, 20).unwrap();
+        assert_eq!(span, Span::new(19, 23));
     }
 
     #[test]

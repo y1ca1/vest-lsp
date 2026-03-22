@@ -37,6 +37,10 @@ impl Span {
     pub fn empty() -> Self {
         Self::new(0, 0)
     }
+
+    pub fn contains(self, byte_offset: usize) -> bool {
+        self.start_byte <= byte_offset && byte_offset < self.end_byte
+    }
 }
 
 /// Visibility modifier for definitions.
@@ -61,6 +65,7 @@ pub struct Definition<'db> {
     pub name: Name<'db>,
     pub visibility: Visibility,
     pub kind: DefinitionKind<'db>,
+    pub name_span: Span,
     pub span: Span,
 }
 
