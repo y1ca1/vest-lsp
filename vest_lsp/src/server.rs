@@ -463,7 +463,6 @@ pub async fn run_stdio_server() -> async_lsp::Result<()> {
 fn completion_items() -> Vec<CompletionItem> {
     keyword_completion("const")
         .into_iter()
-        .chain(keyword_completion("macro"))
         .chain(keyword_completion("enum"))
         .chain(keyword_completion("choose"))
         .chain(keyword_completion("wrap"))
@@ -510,7 +509,6 @@ fn semantic_token_legend() -> SemanticTokensLegend {
             SemanticTokenType::MODIFIER,
             SemanticTokenType::TYPE,
             SemanticTokenType::FUNCTION,
-            SemanticTokenType::MACRO,
             SemanticTokenType::PROPERTY,
             SemanticTokenType::VARIABLE,
             SemanticTokenType::PARAMETER,
@@ -530,15 +528,14 @@ fn semantic_token_index(kind: SemanticTokenKind) -> u32 {
         SemanticTokenKind::Modifier => 1,
         SemanticTokenKind::Type => 2,
         SemanticTokenKind::Function => 3,
-        SemanticTokenKind::Macro => 4,
-        SemanticTokenKind::Property => 5,
-        SemanticTokenKind::Constant | SemanticTokenKind::Variable => 6,
-        SemanticTokenKind::Parameter => 7,
-        SemanticTokenKind::EnumMember => 8,
-        SemanticTokenKind::Number => 9,
-        SemanticTokenKind::String => 10,
-        SemanticTokenKind::Operator => 11,
-        SemanticTokenKind::Comment => 12,
+        SemanticTokenKind::Property => 4,
+        SemanticTokenKind::Constant | SemanticTokenKind::Variable => 5,
+        SemanticTokenKind::Parameter => 6,
+        SemanticTokenKind::EnumMember => 7,
+        SemanticTokenKind::Number => 8,
+        SemanticTokenKind::String => 9,
+        SemanticTokenKind::Operator => 10,
+        SemanticTokenKind::Comment => 11,
     }
 }
 
@@ -872,32 +869,6 @@ Unexpected end of file @ 1:13-1:13"#]]
         assert_eq!(location.uri, uri);
         assert_eq!(location.range.start.line, 0);
         assert_eq!(location.range.start.character, 4);
-    }
-
-    #[test]
-    fn goto_definition_resolves_macro_parameter_reference() {
-        let uri = uri("goto_macro");
-        let mut server = server();
-        open_document(&mut server, &uri, 1, "macro copy!(x) = x\n");
-
-        let definition = server
-            .goto_definition(GotoDefinitionParams {
-                text_document_position_params: lsp_types::TextDocumentPositionParams {
-                    text_document: TextDocumentIdentifier { uri: uri.clone() },
-                    position: Position::new(0, 17),
-                },
-                work_done_progress_params: Default::default(),
-                partial_result_params: Default::default(),
-            })
-            .expect("definition should exist");
-
-        let GotoDefinitionResponse::Scalar(location) = definition else {
-            panic!("expected scalar location");
-        };
-
-        assert_eq!(location.uri, uri);
-        assert_eq!(location.range.start.line, 0);
-        assert_eq!(location.range.start.character, 12);
     }
 
     #[test]

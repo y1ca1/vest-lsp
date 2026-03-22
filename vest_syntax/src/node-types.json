@@ -161,10 +161,6 @@
           "named": true
         },
         {
-          "type": "macro_invocation",
-          "named": true
-        },
-        {
           "type": "option_combinator",
           "named": true
         },
@@ -529,10 +525,6 @@
         {
           "type": "endianess_defn",
           "named": true
-        },
-        {
-          "type": "macro_defn",
-          "named": true
         }
       ]
     }
@@ -832,91 +824,6 @@
         },
         {
           "type": "mul_op",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "macro_arg_list",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "combinator_inner",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "macro_defn",
-    "named": true,
-    "fields": {
-      "body": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "combinator",
-            "named": true
-          }
-        ]
-      },
-      "name": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "var_id",
-            "named": true
-          }
-        ]
-      }
-    },
-    "children": {
-      "multiple": false,
-      "required": false,
-      "types": [
-        {
-          "type": "macro_param_list",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "macro_invocation",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "macro_arg_list",
-          "named": true
-        },
-        {
-          "type": "var_id",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "macro_param_list",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "var_id",
           "named": true
         }
       ]
@@ -1403,10 +1310,6 @@
   {
     "type": "int_type_suffix",
     "named": true
-  },
-  {
-    "type": "macro",
-    "named": false
   },
   {
     "type": "mul_op",

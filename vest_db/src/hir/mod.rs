@@ -19,8 +19,7 @@ pub use symbols::{
 pub use types::{
     ArrayCombinator, ChoiceArm, ChoiceCombinator, Combinator, ConstValue, Definition,
     DefinitionKind, Endianness, EnumDef, EnumVariant, Field, FileHir, HirDiagnostic,
-    HirDiagnosticKind, IntConstraint, IntType, LengthAtom, LengthExpr, LengthOp, LengthTerm,
-    MacroDef, MacroParam, Name, NameRef, OptionCombinator, Param, SizeTarget, Span,
-    StructCombinator, SymbolId, SymbolOccurrence, SymbolOccurrenceKind, VecCombinator, Visibility,
-    WrapArg, WrapCombinator,
+    HirDiagnosticKind, IntConstraint, IntType, LengthAtom, LengthExpr, LengthOp, LengthTerm, Name,
+    NameRef, OptionCombinator, Param, SizeTarget, Span, StructCombinator, SymbolId,
+    SymbolOccurrence, SymbolOccurrenceKind, VecCombinator, Visibility, WrapArg, WrapCombinator,
 };

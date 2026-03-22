@@ -98,7 +98,6 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
                 "combinator_defn" => self.lower_combinator_defn(child),
                 "const_combinator_defn" => self.lower_const_defn(child),
                 "endianess_defn" => self.lower_endianness_defn(child),
-                "macro_defn" => self.lower_macro_defn(child),
                 _ => {}
             }
         }
@@ -248,41 +247,6 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
         });
     }
 
-    fn lower_macro_defn(&mut self, node: Node<'_>) {
-        let mut name = None;
-        let mut name_span = None;
-        let mut params = Vec::new();
-        let mut body = None;
-        let span = Span::from_node(&node);
-
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            match child.kind() {
-                "var_id" => {
-                    name = Some(self.intern(self.node_text(child)));
-                    name_span = Some(Span::from_node(&child));
-                }
-                "macro_param_list" => {
-                    params = self.lower_macro_param_list(child);
-                }
-                "combinator" => {
-                    body = Some(self.lower_combinator(child));
-                }
-                _ => {}
-            }
-        }
-
-        if let (Some(name), Some(name_span), Some(body)) = (name, name_span, body) {
-            self.definitions.push(Definition {
-                name,
-                visibility: Visibility::Default,
-                kind: DefinitionKind::Macro(MacroDef { params, body }),
-                name_span,
-                span,
-            });
-        }
-    }
-
     fn lower_param_defn_list(&mut self, node: Node<'_>) -> Vec<Param<'db>> {
         let mut params = Vec::new();
         let mut cursor = node.walk();
@@ -321,20 +285,6 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
             (Some(name), Some(span), Some(ty)) => Some(Param { name, ty, span }),
             _ => None,
         }
-    }
-
-    fn lower_macro_param_list(&mut self, node: Node<'_>) -> Vec<MacroParam<'db>> {
-        let mut params = Vec::new();
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if child.kind() == "var_id" {
-                params.push(MacroParam {
-                    name: self.intern(self.node_text(child)),
-                    span: Span::from_node(&child),
-                });
-            }
-        }
-        params
     }
 
     fn lower_combinator(&mut self, node: Node<'_>) -> Combinator<'db> {
@@ -380,7 +330,6 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
                 "wrap_combinator" => return self.lower_wrap_combinator(child),
                 "tail_combinator" => return Combinator::Tail,
                 "combinator_invocation" => return self.lower_combinator_invocation(child),
-                "macro_invocation" => return self.lower_macro_invocation(child),
                 "enum_combinator" => {
                     return self.lower_enum_combinator_as_combinator(child);
                 }
@@ -1290,45 +1239,6 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
         None
     }
 
-    fn lower_macro_invocation(&mut self, node: Node<'_>) -> Combinator<'db> {
-        let mut name = None;
-        let mut args = Vec::new();
-
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            match child.kind() {
-                "var_id" => {
-                    name = Some(self.name_ref(child));
-                }
-                "macro_arg_list" => {
-                    args = self.lower_macro_arg_list(child);
-                }
-                _ => {}
-            }
-        }
-
-        if let Some(name) = name {
-            Combinator::MacroInvocation {
-                name: name.name,
-                args,
-                span: name.span,
-            }
-        } else {
-            Combinator::Error
-        }
-    }
-
-    fn lower_macro_arg_list(&mut self, node: Node<'_>) -> Vec<Combinator<'db>> {
-        let mut args = Vec::new();
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if child.kind() == "combinator_inner" {
-                args.push(self.lower_combinator_inner(child));
-            }
-        }
-        args
-    }
-
     fn lower_enum_combinator_as_combinator(&mut self, node: Node<'_>) -> Combinator<'db> {
         // When enum appears as a combinator body, we need to capture it differently.
         // This creates a struct-like representation with the enum variants.
@@ -1563,18 +1473,6 @@ mod tests {
                     .join(", ");
                 format!("{vis}{name} = enum{exhaustive} {{ {variants} }}")
             }
-            DefinitionKind::Macro(m) => {
-                let params = m
-                    .params
-                    .iter()
-                    .map(|p| p.name.as_str(db))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!(
-                    "{vis}macro {name}!({params}) = {}",
-                    format_combinator(db, &m.body)
-                )
-            }
             DefinitionKind::Const { ty, value } => {
                 format!(
                     "{vis}const {name}: {} = {}",
@@ -1690,14 +1588,6 @@ mod tests {
                     format_combinator(db, inner),
                     format_combinator(db, target)
                 )
-            }
-            Combinator::MacroInvocation { name, args, .. } => {
-                let args_str = args
-                    .iter()
-                    .map(|a| format_combinator(db, a))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("{}!({args_str})", name.as_str(db))
             }
             Combinator::Error => "ERROR".to_string(),
         }
@@ -1884,22 +1774,6 @@ mod tests {
             expect![[r#"
                 public pub_def = u8
                 secret sec_def = u16"#]],
-        );
-    }
-
-    #[test]
-    fn lower_macro_definition() {
-        check(
-            "macro wrap_it!(item) = wrap(u8 = 1, item)\n",
-            expect![[r#"macro wrap_it!(item) = wrap(u8 = 1, item)"#]],
-        );
-    }
-
-    #[test]
-    fn lower_macro_invocation() {
-        check(
-            "wrapped = wrap_it!(u32)\n",
-            expect![[r#"wrapped = wrap_it!(u32)"#]],
         );
     }
 

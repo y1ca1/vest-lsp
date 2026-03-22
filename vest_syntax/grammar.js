@@ -31,8 +31,7 @@ module.exports = grammar({
       choice(
         $.combinator_defn,
         $.const_combinator_defn,
-        $.endianess_defn,
-        $.macro_defn
+        $.endianess_defn
       ),
 
     // combinator_defn = { var_id ~ param_defn_list? ~ "=" ~ combinator }
@@ -59,21 +58,6 @@ module.exports = grammar({
     // endianess_defn = { "!LITTLE_ENDIAN" | "!BIG_ENDIAN" }
     endianess_defn: ($) => choice("!LITTLE_ENDIAN", "!BIG_ENDIAN"),
 
-    // macro_defn = { "macro" ~ var_id ~ "!" ~ "(" ~ macro_param_list? ~ ")" ~ "=" ~ combinator }
-    macro_defn: ($) =>
-      seq(
-        "macro",
-        field("name", $.var_id),
-        "!",
-        "(",
-        optional($.macro_param_list),
-        ")",
-        "=",
-        field("body", $.combinator)
-      ),
-
-    macro_param_list: ($) => seq($.var_id, repeat(seq(",", $.var_id))),
-
     // combinator = { ("(" ~ combinator_inner ~ ")" | combinator_inner) ~ (">>=" ~ combinator)? }
     combinator: ($) =>
       prec.right(
@@ -87,7 +71,6 @@ module.exports = grammar({
       choice(
         $.constraint_int_combinator,
         $.constraint_enum_combinator,
-        $.macro_invocation,
         $.struct_combinator,
         $.wrap_combinator,
         $.enum_combinator,
@@ -312,13 +295,6 @@ module.exports = grammar({
     param_list: ($) => seq("(", $.param, repeat(seq(",", $.param)), ")"),
 
     param: ($) => $.depend_id,
-
-    // Macro invocation
-    macro_invocation: ($) =>
-      seq($.var_id, "!", "(", $.macro_arg_list, ")"),
-
-    macro_arg_list: ($) =>
-      seq($.combinator_inner, repeat(seq(",", $.combinator_inner))),
 
     // Const combinators
     const_combinator: ($) => choice($.inline_const_combinator, $.const_id),

@@ -22,8 +22,7 @@ pub fn is_valid_identifier_text(text: &str) -> bool {
 fn is_reserved_word(text: &str) -> bool {
     matches!(
         text,
-        "macro"
-            | "const"
+        "const"
             | "enum"
             | "choose"
             | "wrap"

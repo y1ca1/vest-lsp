@@ -4,7 +4,6 @@
 (tail) @keyword
 
 ; Keywords (as literals - tree-sitter captures them directly)
-"macro" @keyword
 "enum" @keyword
 "choose" @keyword
 "wrap" @keyword
@@ -23,16 +22,9 @@
 (combinator_defn
   name: (var_id (identifier) @function.definition))
 
-(macro_defn
-  name: (var_id (identifier) @function.macro))
-
 ; Combinator invocation (function calls)
 (combinator_invocation
   (var_id (identifier) @function.call))
-
-; Macro invocation
-(macro_invocation
-  (var_id (identifier) @function.macro))
 
 ; Fields in structs
 (field

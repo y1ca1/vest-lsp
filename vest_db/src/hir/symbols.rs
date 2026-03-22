@@ -61,14 +61,6 @@ pub fn resolve_local_symbol<'db>(
             }
             None
         }
-        DefinitionKind::Macro(m) => {
-            for param in &m.params {
-                if param.name.as_str(db) == name_str {
-                    return Some(param.span);
-                }
-            }
-            None
-        }
         _ => None,
     }
 }
@@ -102,11 +94,6 @@ pub fn declaration_at_offset<'db>(def: &Definition<'db>, byte_offset: usize) -> 
             .iter()
             .find(|variant| variant.span.contains(byte_offset))
             .map(|variant| variant.span),
-        DefinitionKind::Macro(m) => m
-            .params
-            .iter()
-            .find(|param| param.span.contains(byte_offset))
-            .map(|param| param.span),
         _ => None,
     }
 }
@@ -246,12 +233,6 @@ fn collect_refs_recursive<'db>(comb: &Combinator<'db>, refs: &mut Vec<Name<'db>>
             collect_refs_recursive(inner, refs);
             collect_refs_recursive(target, refs);
         }
-        Combinator::MacroInvocation { name, args, .. } => {
-            refs.push(*name);
-            for arg in args {
-                collect_refs_recursive(arg, refs);
-            }
-        }
         Combinator::ConstrainedInt { .. }
         | Combinator::Int(_)
         | Combinator::Tail
@@ -335,33 +316,6 @@ fn collect_definition_occurrences<'db>(
                     SymbolOccurrenceKind::Declaration,
                 );
             }
-        }
-        DefinitionKind::Macro(macro_def) => {
-            let mut visible = Vec::new();
-            for param in &macro_def.params {
-                let symbol = SymbolId::MacroParam {
-                    owner: definition.name,
-                    name: param.name,
-                    declaration: param.span,
-                };
-                push_occurrence(
-                    occurrences,
-                    symbol,
-                    param.span,
-                    SymbolOccurrenceKind::Declaration,
-                );
-                visible.push(LocalBinding {
-                    symbol,
-                    enum_ty: None,
-                });
-            }
-            collect_combinator_occurrences(
-                hir,
-                definition.name,
-                &macro_def.body,
-                &mut visible,
-                occurrences,
-            );
         }
         DefinitionKind::Const { ty, value } => {
             let mut visible = Vec::new();
@@ -556,19 +510,6 @@ fn collect_combinator_occurrences<'db>(
             collect_combinator_occurrences(hir, owner, inner, visible, occurrences);
             collect_combinator_occurrences(hir, owner, target, visible, occurrences);
         }
-        Combinator::MacroInvocation { name, args, span } => {
-            if let Some(definition) = resolve_symbol_in_hir(hir, *name) {
-                push_occurrence(
-                    occurrences,
-                    definition.symbol_id(),
-                    *span,
-                    SymbolOccurrenceKind::Reference,
-                );
-            }
-            for arg in args {
-                collect_combinator_occurrences(hir, owner, arg, visible, occurrences);
-            }
-        }
         Combinator::ConstrainedInt { .. }
         | Combinator::Int(_)
         | Combinator::Tail
@@ -752,17 +693,6 @@ mod tests {
         let field_name = Name::new(&db, "len");
         let span = resolve_local_symbol(&db, &def, field_name);
         assert!(span.is_some());
-    }
-
-    #[test]
-    fn resolve_local_macro_param_returns_param_span() {
-        let (db, file) = setup("macro copy!(x) = x\n");
-        let name = Name::new(&db, "copy");
-        let def = resolve_symbol(&db, file, name).unwrap();
-
-        let param_name = Name::new(&db, "x");
-        let span = resolve_local_symbol(&db, &def, param_name).unwrap();
-        assert_eq!(span, Span::new(12, 13));
     }
 
     #[test]

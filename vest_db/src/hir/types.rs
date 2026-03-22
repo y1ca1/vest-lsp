@@ -122,11 +122,6 @@ pub enum SymbolId<'db> {
         name: Name<'db>,
         declaration: Span,
     },
-    MacroParam {
-        owner: Name<'db>,
-        name: Name<'db>,
-        declaration: Span,
-    },
 }
 
 impl<'db> SymbolId<'db> {
@@ -146,8 +141,7 @@ impl<'db> SymbolId<'db> {
             SymbolId::TopLevel { declaration, .. }
             | SymbolId::Param { declaration, .. }
             | SymbolId::Field { declaration, .. }
-            | SymbolId::EnumVariant { declaration, .. }
-            | SymbolId::MacroParam { declaration, .. } => declaration,
+            | SymbolId::EnumVariant { declaration, .. } => declaration,
         }
     }
 
@@ -156,8 +150,7 @@ impl<'db> SymbolId<'db> {
             SymbolId::TopLevel { name, .. }
             | SymbolId::Param { name, .. }
             | SymbolId::Field { name, .. }
-            | SymbolId::EnumVariant { name, .. }
-            | SymbolId::MacroParam { name, .. } => name,
+            | SymbolId::EnumVariant { name, .. } => name,
         }
     }
 
@@ -207,7 +200,6 @@ pub enum DefinitionKind<'db> {
         body: Combinator<'db>,
     },
     Enum(EnumDef<'db>),
-    Macro(MacroDef<'db>),
     Const {
         ty: Combinator<'db>,
         value: ConstValue<'db>,
@@ -267,13 +259,6 @@ pub enum Combinator<'db> {
     Bind {
         inner: Box<Combinator<'db>>,
         target: Box<Combinator<'db>>,
-    },
-
-    /// Macro invocation name!(args)
-    MacroInvocation {
-        name: Name<'db>,
-        args: Vec<Combinator<'db>>,
-        span: Span,
     },
 
     /// Lowering error placeholder
@@ -475,19 +460,6 @@ pub struct EnumDef<'db> {
 pub struct EnumVariant<'db> {
     pub name: Name<'db>,
     pub value: ConstValue<'db>,
-    pub span: Span,
-}
-
-/// Macro definition.
-#[derive(Clone, PartialEq, Eq)]
-pub struct MacroDef<'db> {
-    pub params: Vec<MacroParam<'db>>,
-    pub body: Combinator<'db>,
-}
-
-#[derive(Clone, PartialEq, Eq)]
-pub struct MacroParam<'db> {
-    pub name: Name<'db>,
     pub span: Span,
 }
 

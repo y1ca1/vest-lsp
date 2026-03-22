@@ -70,30 +70,6 @@ Unexpected end of file @ 24..24"#]]
     }
 
     #[test]
-    fn exposes_semantic_tokens_from_highlight_query() {
-        let source = "macro wrap_packet!(item) = wrap(u8 = 1, item)\n";
-        let parse = parse(source);
-        let rendered = parse
-            .semantic_tokens()
-            .iter()
-            .map(|token| format!("{:?}@{}..{}", token.kind, token.start_byte, token.end_byte))
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        expect![[r#"
-Keyword@0..5
-Macro@6..17
-Operator@17..18
-Operator@25..26
-Keyword@27..31
-Type@32..34
-Operator@35..36
-Number@37..38
-Function@40..44"#]]
-        .assert_eq(&rendered);
-    }
-
-    #[test]
     fn semantic_token_kinds_are_specific() {
         let source = "choice(@tag: u8) = choose(@tag) { 1 => u16, }\n";
         let parse = parse(source);

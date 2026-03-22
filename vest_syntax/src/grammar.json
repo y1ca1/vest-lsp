@@ -23,10 +23,6 @@
         {
           "type": "SYMBOL",
           "name": "endianess_defn"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "macro_defn"
         }
       ]
     },
@@ -176,84 +172,6 @@
         }
       ]
     },
-    "macro_defn": {
-      "type": "SEQ",
-      "members": [
-        {
-          "type": "STRING",
-          "value": "macro"
-        },
-        {
-          "type": "FIELD",
-          "name": "name",
-          "content": {
-            "type": "SYMBOL",
-            "name": "var_id"
-          }
-        },
-        {
-          "type": "STRING",
-          "value": "!"
-        },
-        {
-          "type": "STRING",
-          "value": "("
-        },
-        {
-          "type": "CHOICE",
-          "members": [
-            {
-              "type": "SYMBOL",
-              "name": "macro_param_list"
-            },
-            {
-              "type": "BLANK"
-            }
-          ]
-        },
-        {
-          "type": "STRING",
-          "value": ")"
-        },
-        {
-          "type": "STRING",
-          "value": "="
-        },
-        {
-          "type": "FIELD",
-          "name": "body",
-          "content": {
-            "type": "SYMBOL",
-            "name": "combinator"
-          }
-        }
-      ]
-    },
-    "macro_param_list": {
-      "type": "SEQ",
-      "members": [
-        {
-          "type": "SYMBOL",
-          "name": "var_id"
-        },
-        {
-          "type": "REPEAT",
-          "content": {
-            "type": "SEQ",
-            "members": [
-              {
-                "type": "STRING",
-                "value": ","
-              },
-              {
-                "type": "SYMBOL",
-                "name": "var_id"
-              }
-            ]
-          }
-        }
-      ]
-    },
     "combinator": {
       "type": "PREC_RIGHT",
       "value": 0,
@@ -320,10 +238,6 @@
         {
           "type": "SYMBOL",
           "name": "constraint_enum_combinator"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "macro_invocation"
         },
         {
           "type": "SYMBOL",
@@ -1409,56 +1323,6 @@
     "param": {
       "type": "SYMBOL",
       "name": "depend_id"
-    },
-    "macro_invocation": {
-      "type": "SEQ",
-      "members": [
-        {
-          "type": "SYMBOL",
-          "name": "var_id"
-        },
-        {
-          "type": "STRING",
-          "value": "!"
-        },
-        {
-          "type": "STRING",
-          "value": "("
-        },
-        {
-          "type": "SYMBOL",
-          "name": "macro_arg_list"
-        },
-        {
-          "type": "STRING",
-          "value": ")"
-        }
-      ]
-    },
-    "macro_arg_list": {
-      "type": "SEQ",
-      "members": [
-        {
-          "type": "SYMBOL",
-          "name": "combinator_inner"
-        },
-        {
-          "type": "REPEAT",
-          "content": {
-            "type": "SEQ",
-            "members": [
-              {
-                "type": "STRING",
-                "value": ","
-              },
-              {
-                "type": "SYMBOL",
-                "name": "combinator_inner"
-              }
-            ]
-          }
-        }
-      ]
     },
     "const_combinator": {
       "type": "CHOICE",
