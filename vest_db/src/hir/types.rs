@@ -15,6 +15,23 @@ impl<'db> Name<'db> {
     }
 }
 
+/// A resolved or unresolved name occurrence with an exact source span.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct NameRef<'db> {
+    pub name: Name<'db>,
+    pub span: Span,
+}
+
+impl<'db> NameRef<'db> {
+    pub fn new(name: Name<'db>, span: Span) -> Self {
+        Self { name, span }
+    }
+
+    pub fn as_str(&self, db: &'db dyn Db) -> &'db str {
+        self.name.as_str(db)
+    }
+}
+
 /// Source span for error reporting and navigation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Span {
@@ -73,6 +90,113 @@ impl<'db> Definition<'db> {
     pub fn name_str(&self, db: &'db dyn Db) -> &'db str {
         self.name.as_str(db)
     }
+
+    pub fn symbol_id(&self) -> SymbolId<'db> {
+        SymbolId::TopLevel {
+            name: self.name,
+            declaration: self.name_span,
+        }
+    }
+}
+
+/// A symbol identity scoped to the current file.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SymbolId<'db> {
+    TopLevel {
+        name: Name<'db>,
+        declaration: Span,
+    },
+    Param {
+        owner: Name<'db>,
+        name: Name<'db>,
+        declaration: Span,
+    },
+    Field {
+        owner: Name<'db>,
+        name: Name<'db>,
+        declaration: Span,
+        is_dependent: bool,
+    },
+    EnumVariant {
+        owner: Name<'db>,
+        name: Name<'db>,
+        declaration: Span,
+    },
+    MacroParam {
+        owner: Name<'db>,
+        name: Name<'db>,
+        declaration: Span,
+    },
+}
+
+impl<'db> SymbolId<'db> {
+    pub fn is_sigiled(self) -> bool {
+        matches!(
+            self,
+            SymbolId::Param { .. }
+                | SymbolId::Field {
+                    is_dependent: true,
+                    ..
+                }
+        )
+    }
+
+    pub fn declaration_span(self) -> Span {
+        match self {
+            SymbolId::TopLevel { declaration, .. }
+            | SymbolId::Param { declaration, .. }
+            | SymbolId::Field { declaration, .. }
+            | SymbolId::EnumVariant { declaration, .. }
+            | SymbolId::MacroParam { declaration, .. } => declaration,
+        }
+    }
+
+    pub fn name(self) -> Name<'db> {
+        match self {
+            SymbolId::TopLevel { name, .. }
+            | SymbolId::Param { name, .. }
+            | SymbolId::Field { name, .. }
+            | SymbolId::EnumVariant { name, .. }
+            | SymbolId::MacroParam { name, .. } => name,
+        }
+    }
+
+    pub fn prepare_rename_span(self, occurrence: Span) -> Span {
+        if self.is_sigiled() && occurrence.start_byte < occurrence.end_byte {
+            Span::new(occurrence.start_byte + 1, occurrence.end_byte)
+        } else {
+            occurrence
+        }
+    }
+
+    pub fn normalize_rename_input<'a>(self, new_name: &'a str) -> &'a str {
+        if self.is_sigiled() {
+            new_name.strip_prefix('@').unwrap_or(new_name)
+        } else {
+            new_name
+        }
+    }
+
+    pub fn rename_text(self, new_name: &str) -> String {
+        match self {
+            SymbolId::Param { .. } => format!("@{new_name}"),
+            SymbolId::Field { is_dependent, .. } if is_dependent => format!("@{new_name}"),
+            _ => new_name.to_string(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SymbolOccurrenceKind {
+    Declaration,
+    Reference,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SymbolOccurrence<'db> {
+    pub symbol: SymbolId<'db>,
+    pub span: Span,
+    pub kind: SymbolOccurrenceKind,
 }
 
 /// The kind of a top-level definition.
@@ -106,14 +230,14 @@ pub enum Combinator<'db> {
     /// Reference to another combinator by name
     Reference {
         name: Name<'db>,
-        args: Vec<Name<'db>>,
+        args: Vec<NameRef<'db>>,
         span: Span,
     },
 
     /// Reference with enum constraint (MyEnum | { A, B })
     ConstrainedReference {
         name: Name<'db>,
-        constraint: Vec<Name<'db>>,
+        constraint: Vec<NameRef<'db>>,
         negated: bool,
         span: Span,
     },
@@ -240,7 +364,7 @@ pub struct Field<'db> {
 /// A choice combinator with pattern matching arms.
 #[derive(Clone, PartialEq, Eq)]
 pub struct ChoiceCombinator<'db> {
-    pub discriminant: Option<Name<'db>>,
+    pub discriminant: Option<NameRef<'db>>,
     pub arms: Vec<ChoiceArm<'db>>,
 }
 
@@ -254,7 +378,7 @@ pub struct ChoiceArm<'db> {
 
 #[derive(Clone, PartialEq, Eq)]
 pub enum ChoicePattern<'db> {
-    Variant(Name<'db>),
+    Variant(NameRef<'db>),
     Wildcard,
     Constraint(ConstraintElement<'db>),
     Array(Vec<ConstValue<'db>>),
@@ -293,8 +417,8 @@ pub enum WrapArg<'db> {
         value: ConstValue<'db>,
     },
     ConstEnum {
-        ty: Name<'db>,
-        variant: Name<'db>,
+        ty: NameRef<'db>,
+        variant: NameRef<'db>,
     },
     ConstBytes {
         element_ty: IntType,
@@ -319,7 +443,7 @@ pub struct LengthTerm<'db> {
 #[derive(Clone, PartialEq, Eq)]
 pub enum LengthAtom<'db> {
     Const(u64),
-    Param(Name<'db>),
+    Param(NameRef<'db>),
     SizeOf(SizeTarget<'db>),
     Paren(Box<LengthExpr<'db>>),
 }
@@ -327,7 +451,7 @@ pub enum LengthAtom<'db> {
 #[derive(Clone, PartialEq, Eq)]
 pub enum SizeTarget<'db> {
     Type(IntType),
-    Named(Name<'db>),
+    Named(NameRef<'db>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -379,7 +503,7 @@ pub struct Param<'db> {
 #[derive(Clone, PartialEq, Eq)]
 pub enum ConstValue<'db> {
     Int(u64),
-    String(Name<'db>),
+    String(NameRef<'db>),
 }
 
 impl<'db> ConstValue<'db> {

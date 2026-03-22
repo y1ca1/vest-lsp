@@ -61,6 +61,23 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
         Name::new(self.db, text.to_string())
     }
 
+    fn name_ref(&self, node: Node<'_>) -> NameRef<'db> {
+        NameRef::new(self.intern(self.node_text(node)), Span::from_node(&node))
+    }
+
+    fn dependent_name_ref(&self, node: Node<'_>) -> Option<NameRef<'db>> {
+        let text = self.node_text(node);
+        let binding = dependent_binding_name(text)?;
+        // Dotted dependent identifiers like `@len.value` still reference the
+        // `@len` binding. The suffix is a projection and must stay outside the
+        // rename/navigation span.
+        let end_byte = node.start_byte() + usize::from(text.starts_with('@')) + binding.len();
+        Some(NameRef::new(
+            self.intern(binding),
+            Span::new(node.start_byte(), end_byte),
+        ))
+    }
+
     fn node_text(&self, node: Node<'_>) -> &'src str {
         node.utf8_text(self.source.as_bytes()).unwrap_or("")
     }
@@ -288,9 +305,9 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
         for child in node.children(&mut cursor) {
             match child.kind() {
                 "depend_id" => {
-                    if let Some(binding) = dependent_binding_name(self.node_text(child)) {
-                        name = Some(self.intern(binding));
-                        span = Some(Span::from_node(&child));
+                    if let Some(name_ref) = self.dependent_name_ref(child) {
+                        name = Some(name_ref.name);
+                        span = Some(name_ref.span);
                     }
                 }
                 "combinator_inner" => {
@@ -520,7 +537,6 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
         let mut name = None;
         let mut constraint = Vec::new();
         let mut negated = false;
-        let span = Span::from_node(&node);
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -541,17 +557,17 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
 
         if let Some(name) = name {
             Combinator::ConstrainedReference {
-                name,
+                name: name.name,
                 constraint,
                 negated,
-                span,
+                span: name.span,
             }
         } else {
             Combinator::Error
         }
     }
 
-    fn lower_enum_constraint(&mut self, node: Node<'_>) -> (Vec<Name<'db>>, bool) {
+    fn lower_enum_constraint(&mut self, node: Node<'_>) -> (Vec<NameRef<'db>>, bool) {
         let mut elements = Vec::new();
         let mut negated = false;
 
@@ -576,17 +592,17 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
         (elements, negated)
     }
 
-    fn lower_enum_constraint_elem(&mut self, node: Node<'_>) -> Name<'db> {
+    fn lower_enum_constraint_elem(&mut self, node: Node<'_>) -> NameRef<'db> {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "variant_id" {
-                return self.intern(self.node_text(child));
+                return self.name_ref(child);
             }
         }
-        self.intern(self.node_text(node))
+        self.name_ref(node)
     }
 
-    fn lower_enum_constraint_set(&mut self, node: Node<'_>) -> Vec<Name<'db>> {
+    fn lower_enum_constraint_set(&mut self, node: Node<'_>) -> Vec<NameRef<'db>> {
         let mut elements = Vec::new();
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -624,9 +640,9 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
                 "constant" => is_const = true,
                 "depend_id" => {
                     is_dependent = true;
-                    if let Some(binding) = dependent_binding_name(self.node_text(child)) {
-                        name = Some(self.intern(binding));
-                        span = Some(Span::from_node(&child));
+                    if let Some(name_ref) = self.dependent_name_ref(child) {
+                        name = Some(name_ref.name);
+                        span = Some(name_ref.span);
                     }
                 }
                 "var_id" => {
@@ -747,24 +763,21 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
                     ty_name = self.extract_var_id(child);
                 }
                 "variant_id" => {
-                    variant = Some(self.intern(self.node_text(child)));
+                    variant = Some(self.name_ref(child));
                 }
                 _ => {}
             }
         }
 
         match (ty_name, variant) {
-            (Some(ty), Some(v)) => {
-                let span = Span::from_node(&node);
-                (
-                    Some(Combinator::Reference {
-                        name: ty,
-                        args: Vec::new(),
-                        span,
-                    }),
-                    Some(ConstValue::String(v)),
-                )
-            }
+            (Some(ty), Some(v)) => (
+                Some(Combinator::Reference {
+                    name: ty.name,
+                    args: Vec::new(),
+                    span: ty.span,
+                }),
+                Some(ConstValue::String(v)),
+            ),
             _ => (None, None),
         }
     }
@@ -817,8 +830,8 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
         for child in node.children(&mut cursor) {
             match child.kind() {
                 "depend_id" => {
-                    if let Some(binding) = dependent_binding_name(self.node_text(child)) {
-                        discriminant = Some(self.intern(binding));
+                    if let Some(name_ref) = self.dependent_name_ref(child) {
+                        discriminant = Some(name_ref);
                     }
                 }
                 "choice_arm" => {
@@ -846,7 +859,7 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
                     pattern = Some(if text == "_" {
                         ChoicePattern::Wildcard
                     } else {
-                        ChoicePattern::Variant(self.intern(text))
+                        ChoicePattern::Variant(self.name_ref(child))
                     });
                 }
                 "constraint_elem" => {
@@ -1009,8 +1022,8 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
                     return LengthAtom::Const(val);
                 }
                 "depend_id" => {
-                    if let Some(binding) = dependent_binding_name(self.node_text(child)) {
-                        return LengthAtom::Param(self.intern(binding));
+                    if let Some(name_ref) = self.dependent_name_ref(child) {
+                        return LengthAtom::Param(name_ref);
                     }
                 }
                 "size_expr" => {
@@ -1053,12 +1066,15 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "identifier" {
-                return LengthAtom::SizeOf(SizeTarget::Named(self.intern(self.node_text(child))));
+                return LengthAtom::SizeOf(SizeTarget::Named(self.name_ref(child)));
             }
         }
 
         // Fall back to treating the whole text as a named reference
-        LengthAtom::SizeOf(SizeTarget::Named(self.intern(text)))
+        LengthAtom::SizeOf(SizeTarget::Named(NameRef::new(
+            self.intern(text),
+            Span::from_node(&node),
+        )))
     }
 
     fn lower_vec_combinator(&mut self, node: Node<'_>) -> Combinator<'db> {
@@ -1123,11 +1139,13 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
                     }
                 }
                 "const_enum_combinator" => {
-                    if let (Some(Combinator::Reference { name, .. }), Some(ConstValue::String(v))) =
-                        self.lower_const_enum_combinator(child)
+                    if let (
+                        Some(Combinator::Reference { name, span, .. }),
+                        Some(ConstValue::String(v)),
+                    ) = self.lower_const_enum_combinator(child)
                     {
                         return Some(WrapArg::ConstEnum {
-                            ty: name,
+                            ty: NameRef::new(name, span),
                             variant: v,
                         });
                     }
@@ -1222,13 +1240,12 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
     fn lower_combinator_invocation(&mut self, node: Node<'_>) -> Combinator<'db> {
         let mut name = None;
         let mut args = Vec::new();
-        let span = Span::from_node(&node);
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             match child.kind() {
                 "var_id" => {
-                    name = Some(self.intern(self.node_text(child)));
+                    name = Some(self.name_ref(child));
                 }
                 "param_list" => {
                     args = self.lower_param_list(child);
@@ -1238,13 +1255,17 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
         }
 
         if let Some(name) = name {
-            Combinator::Reference { name, args, span }
+            Combinator::Reference {
+                name: name.name,
+                args,
+                span: name.span,
+            }
         } else {
             Combinator::Error
         }
     }
 
-    fn lower_param_list(&mut self, node: Node<'_>) -> Vec<Name<'db>> {
+    fn lower_param_list(&mut self, node: Node<'_>) -> Vec<NameRef<'db>> {
         let mut params = Vec::new();
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -1257,13 +1278,13 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
         params
     }
 
-    fn lower_param(&mut self, node: Node<'_>) -> Option<Name<'db>> {
+    fn lower_param(&mut self, node: Node<'_>) -> Option<NameRef<'db>> {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "depend_id"
-                && let Some(binding) = dependent_binding_name(self.node_text(child))
+                && let Some(name_ref) = self.dependent_name_ref(child)
             {
-                return Some(self.intern(binding));
+                return Some(name_ref);
             }
         }
         None
@@ -1272,13 +1293,12 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
     fn lower_macro_invocation(&mut self, node: Node<'_>) -> Combinator<'db> {
         let mut name = None;
         let mut args = Vec::new();
-        let span = Span::from_node(&node);
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             match child.kind() {
                 "var_id" => {
-                    name = Some(self.intern(self.node_text(child)));
+                    name = Some(self.name_ref(child));
                 }
                 "macro_arg_list" => {
                     args = self.lower_macro_arg_list(child);
@@ -1288,7 +1308,11 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
         }
 
         if let Some(name) = name {
-            Combinator::MacroInvocation { name, args, span }
+            Combinator::MacroInvocation {
+                name: name.name,
+                args,
+                span: name.span,
+            }
         } else {
             Combinator::Error
         }
@@ -1428,11 +1452,11 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
         (value, int_type)
     }
 
-    fn extract_var_id(&self, node: Node<'_>) -> Option<Name<'db>> {
+    fn extract_var_id(&self, node: Node<'_>) -> Option<NameRef<'db>> {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "var_id" {
-                return Some(self.intern(self.node_text(child)));
+                return Some(self.name_ref(child));
             }
         }
         None
@@ -1776,6 +1800,34 @@ mod tests {
             "msg = { @len: u16, data: [u8; @len.value], }\n",
             expect![[r#"msg = { @len: u16, data: [u8; @len] }"#]],
         );
+    }
+
+    #[test]
+    fn lower_dotted_dependent_reference_preserves_base_binding_span() {
+        let db = Database::new();
+        let file = SourceFile::new(
+            &db,
+            "test.vest".to_string(),
+            1,
+            "msg = { @len: u16, data: [u8; @len.value], }\n".to_string(),
+        );
+        let hir = lower_to_hir(&db, file);
+
+        let DefinitionKind::Combinator { body, .. } = &hir.definitions[0].kind else {
+            panic!("expected combinator definition");
+        };
+        let Combinator::Struct(struct_) = body else {
+            panic!("expected struct combinator");
+        };
+        let Combinator::Array(array) = &struct_.fields[1].ty else {
+            panic!("expected array field");
+        };
+        let LengthAtom::Param(name_ref) = &array.length.terms[0].atoms[0] else {
+            panic!("expected dependent length reference");
+        };
+
+        assert_eq!(name_ref.name.as_str(&db), "len");
+        assert_eq!(name_ref.span, Span::new(30, 34));
     }
 
     #[test]

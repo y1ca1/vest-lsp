@@ -7,6 +7,44 @@ pub fn dependent_binding_name(text: &str) -> Option<&str> {
     (!binding.is_empty()).then_some(binding)
 }
 
+/// Returns whether a string is a valid Vest identifier.
+pub fn is_valid_identifier_text(text: &str) -> bool {
+    let mut chars = text.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if !(first == '_' || first.is_ascii_alphabetic()) {
+        return false;
+    }
+    chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric()) && !is_reserved_word(text)
+}
+
+fn is_reserved_word(text: &str) -> bool {
+    matches!(
+        text,
+        "macro"
+            | "const"
+            | "enum"
+            | "choose"
+            | "wrap"
+            | "Option"
+            | "Vec"
+            | "Tail"
+            | "btc_varint"
+            | "uleb128"
+            | "u8"
+            | "u16"
+            | "u24"
+            | "u32"
+            | "u64"
+            | "i8"
+            | "i16"
+            | "i24"
+            | "i32"
+            | "i64"
+    )
+}
+
 /// Normalizes a syntax node's text into the symbol name
 pub fn reference_name_text<'a>(kind: &str, text: &'a str) -> Option<&'a str> {
     match kind {
@@ -25,6 +63,29 @@ mod tests {
     fn dependent_binding_name_uses_base_binding() {
         assert_eq!(dependent_binding_name("@header.len"), Some("header"));
         assert_eq!(dependent_binding_name("@len"), Some("len"));
+    }
+
+    #[test]
+    fn valid_identifier_text_rejects_reserved_words() {
+        for reserved in [
+            "enum",
+            "choose",
+            "wrap",
+            "Option",
+            "Vec",
+            "Tail",
+            "btc_varint",
+            "uleb128",
+            "u8",
+            "i64",
+        ] {
+            assert!(
+                !is_valid_identifier_text(reserved),
+                "{reserved} should be reserved"
+            );
+        }
+        assert!(is_valid_identifier_text("enum_tag"));
+        assert!(is_valid_identifier_text("u8_value"));
     }
 
     #[test]

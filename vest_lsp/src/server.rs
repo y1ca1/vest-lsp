@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::ops::ControlFlow;
 
 use async_lsp::client_monitor::ClientProcessMonitorLayer;
@@ -5,7 +6,7 @@ use async_lsp::panic::CatchUnwindLayer;
 use async_lsp::router::Router;
 use async_lsp::server::LifecycleLayer;
 use async_lsp::tracing::TracingLayer;
-use async_lsp::{ClientSocket, MainLoop};
+use async_lsp::{ClientSocket, ErrorCode, LanguageClient, MainLoop, ResponseError};
 use lsp_types::notification;
 use lsp_types::request;
 use lsp_types::{
@@ -13,17 +14,19 @@ use lsp_types::{
     Diagnostic, DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents,
     HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, Location,
-    MarkupContent, MarkupKind, PublishDiagnosticsParams, SemanticToken, SemanticTokenModifier,
-    SemanticTokenType, SemanticTokens, SemanticTokensFullOptions, SemanticTokensLegend,
-    SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult,
+    LogMessageParams, MarkupContent, MarkupKind, MessageType, PrepareRenameResponse,
+    PublishDiagnosticsParams, ReferenceParams, RenameOptions, RenameParams, SemanticToken,
+    SemanticTokenModifier, SemanticTokenType, SemanticTokens, SemanticTokensFullOptions,
+    SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult,
     SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo, TextDocumentItem,
-    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions, Url,
+    TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TextDocumentSyncOptions, TextEdit, Url, WorkspaceEdit,
 };
 use tower::ServiceBuilder;
 use tracing::{Level, warn};
 use vest_db::{
-    Name, SourceDocument, Span, declaration_at_offset, definition_at_offset_in_hir,
-    lower_to_hir_with_parse, reference_name_text, resolve_local_symbol, resolve_symbol_in_hir,
+    SourceDocument, Span, is_valid_identifier_text, lower_to_hir_with_parse,
+    references_for_symbol_in_hir, symbol_at_offset_in_hir,
 };
 use vest_syntax::{SemanticToken as SyntaxToken, SemanticTokenKind};
 
@@ -42,6 +45,14 @@ impl VestServer {
         }
     }
 
+    fn log_message(&self, typ: MessageType, message: impl Into<String>) {
+        let mut client = self.client.clone();
+        let _ = client.log_message(LogMessageParams {
+            typ,
+            message: message.into(),
+        });
+    }
+
     pub fn initialize_result(&self) -> InitializeResult {
         InitializeResult {
             capabilities: ServerCapabilities {
@@ -56,6 +67,11 @@ impl VestServer {
                 )),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(lsp_types::OneOf::Left(true)),
+                references_provider: Some(lsp_types::OneOf::Left(true)),
+                rename_provider: Some(lsp_types::OneOf::Right(RenameOptions {
+                    prepare_provider: Some(true),
+                    work_done_progress_options: Default::default(),
+                })),
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
                     trigger_characters: Some(vec!["=".into(), "@".into(), "|".into()]),
@@ -80,7 +96,9 @@ impl VestServer {
         }
     }
 
-    pub fn initialized(&self) {}
+    pub fn initialized(&self) {
+        self.log_message(MessageType::INFO, "vest_lsp initialized");
+    }
 
     pub fn open_document(&mut self, document: TextDocumentItem) -> Vec<Diagnostic> {
         let uri = document.uri.clone();
@@ -149,20 +167,128 @@ impl VestServer {
         let parse = self.workspace.parse(&uri)?;
         let db = self.workspace.db();
         let byte_offset = document.position_to_byte_offset(position).ok()?;
-        let reference = reference_node(parse.node_at_byte(byte_offset)?)?;
-        let name = reference_name(db, document, reference)?;
         let hir = lower_to_hir_with_parse(db, source_file, parse);
+        let symbol = symbol_at_offset_in_hir(db, &hir, byte_offset)?;
+        location_for_span(&uri, document, symbol.declaration_span())
+            .map(GotoDefinitionResponse::Scalar)
+    }
 
-        if let Some(definition) = definition_at_offset_in_hir(&hir, byte_offset) {
-            if let Some(span) = declaration_at_offset(&definition, byte_offset)
-                .or_else(|| resolve_local_symbol(db, &definition, name))
-            {
-                return location_for_span(&uri, document, span).map(GotoDefinitionResponse::Scalar);
-            }
+    pub fn references(&self, params: ReferenceParams) -> Option<Vec<Location>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let document = self.workspace.document(&uri)?;
+        let source_file = self.workspace.source_file(&uri)?;
+        let parse = self.workspace.parse(&uri)?;
+        let db = self.workspace.db();
+        let byte_offset = document.position_to_byte_offset(position).ok()?;
+        let hir = lower_to_hir_with_parse(db, source_file, parse);
+        let symbol = symbol_at_offset_in_hir(db, &hir, byte_offset)?;
+
+        Some(
+            references_for_symbol_in_hir(db, &hir, symbol, params.context.include_declaration)
+                .into_iter()
+                .filter_map(|occurrence| location_for_span(&uri, document, occurrence.span))
+                .collect(),
+        )
+    }
+
+    pub fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> Option<PrepareRenameResponse> {
+        let uri = params.text_document.uri;
+        let position = params.position;
+
+        let document = self.workspace.document(&uri)?;
+        let source_file = self.workspace.source_file(&uri)?;
+        let parse = self.workspace.parse(&uri)?;
+        let db = self.workspace.db();
+        let byte_offset = document.position_to_byte_offset(position).ok()?;
+        let hir = lower_to_hir_with_parse(db, source_file, parse);
+        let symbol = symbol_at_offset_in_hir(db, &hir, byte_offset)?;
+        let occurrence = references_for_symbol_in_hir(db, &hir, symbol, true)
+            .into_iter()
+            .find(|occurrence| occurrence.span.contains(byte_offset))?;
+        let prepare_span = symbol.prepare_rename_span(occurrence.span);
+        let range = document
+            .byte_range_to_lsp_range(prepare_span.start_byte, prepare_span.end_byte)
+            .ok()?;
+
+        Some(PrepareRenameResponse::RangeWithPlaceholder {
+            range,
+            placeholder: symbol.name().as_str(db).to_string(),
+        })
+    }
+
+    pub fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>, ResponseError> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let document = self
+            .workspace
+            .document(&uri)
+            .ok_or_else(|| ResponseError::new(ErrorCode::REQUEST_FAILED, "document is not open"))?;
+        let source_file = self.workspace.source_file(&uri).ok_or_else(|| {
+            ResponseError::new(
+                ErrorCode::REQUEST_FAILED,
+                "document source is not available",
+            )
+        })?;
+        let parse = self.workspace.parse(&uri).ok_or_else(|| {
+            ResponseError::new(ErrorCode::REQUEST_FAILED, "document parse is not available")
+        })?;
+        let db = self.workspace.db();
+        let byte_offset = document.position_to_byte_offset(position).map_err(|_| {
+            ResponseError::new(
+                ErrorCode::INVALID_PARAMS,
+                "position does not resolve to a symbol",
+            )
+        })?;
+        let hir = lower_to_hir_with_parse(db, source_file, parse);
+        let symbol = symbol_at_offset_in_hir(db, &hir, byte_offset).ok_or_else(|| {
+            self.log_message(
+                MessageType::WARNING,
+                format!(
+                    "rename rejected: no symbol at {}:{}",
+                    position.line + 1,
+                    position.character + 1
+                ),
+            );
+            ResponseError::new(ErrorCode::REQUEST_FAILED, "cannot rename this location")
+        })?;
+        let new_name = symbol.normalize_rename_input(&params.new_name);
+        if !is_valid_identifier_text(new_name) {
+            self.log_message(
+                MessageType::WARNING,
+                format!("rename rejected: invalid identifier `{}`", params.new_name),
+            );
+            return Err(ResponseError::new(
+                ErrorCode::INVALID_PARAMS,
+                "new name must be a valid Vest identifier",
+            ));
         }
 
-        let definition = resolve_symbol_in_hir(&hir, name)?;
-        location_for_span(&uri, document, definition.span).map(GotoDefinitionResponse::Scalar)
+        let edits = references_for_symbol_in_hir(db, &hir, symbol, true)
+            .into_iter()
+            .filter_map(|occurrence| {
+                Some(TextEdit {
+                    range: document
+                        .byte_range_to_lsp_range(
+                            occurrence.span.start_byte,
+                            occurrence.span.end_byte,
+                        )
+                        .ok()?,
+                    new_text: symbol.rename_text(new_name),
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let mut changes = HashMap::new();
+        changes.insert(uri, edits);
+        Ok(Some(WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+            change_annotations: None,
+        }))
     }
 
     pub fn semantic_tokens_full(
@@ -260,6 +386,18 @@ pub async fn run_stdio_server() -> async_lsp::Result<()> {
                 let definition = state.goto_definition(params);
                 async move { Ok(definition) }
             })
+            .request::<request::References, _>(|state, params| {
+                let references = state.references(params);
+                async move { Ok(references) }
+            })
+            .request::<request::PrepareRenameRequest, _>(|state, params| {
+                let response = state.prepare_rename(params);
+                async move { Ok(response) }
+            })
+            .request::<request::Rename, _>(|state, params| {
+                let rename = state.rename(params);
+                async move { rename }
+            })
             .notification::<notification::Initialized>(|state, _| {
                 state.initialized();
                 ControlFlow::Continue(())
@@ -282,7 +420,13 @@ pub async fn run_stdio_server() -> async_lsp::Result<()> {
                         diagnostics,
                         Some(params.text_document.version),
                     ),
-                    Err(err) => warn!("failed to handle document change: {err}"),
+                    Err(err) => {
+                        state.log_message(
+                            MessageType::ERROR,
+                            format!("failed to handle document change: {err}"),
+                        );
+                        warn!("failed to handle document change: {err}");
+                    }
                 }
                 ControlFlow::Continue(())
             })
@@ -448,32 +592,6 @@ fn encode_semantic_tokens(
     Some(data)
 }
 
-fn reference_node(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
-    let mut current = Some(node);
-    let mut identifier = None;
-
-    while let Some(node) = current {
-        match node.kind() {
-            "depend_id" | "var_id" | "variant_id" => return Some(node),
-            "identifier" => identifier = Some(node),
-            _ => {}
-        }
-        current = node.parent();
-    }
-
-    identifier
-}
-
-fn reference_name<'db>(
-    db: &'db dyn vest_db::Db,
-    document: &SourceDocument,
-    node: tree_sitter::Node<'_>,
-) -> Option<Name<'db>> {
-    let text = document.text().get(node.byte_range())?;
-    let normalized = reference_name_text(node.kind(), text)?;
-    Some(Name::new(db, normalized))
-}
-
 fn location_for_span(uri: &Url, document: &SourceDocument, span: Span) -> Option<Location> {
     let range = document
         .byte_range_to_lsp_range(span.start_byte, span.end_byte)
@@ -487,7 +605,9 @@ fn location_for_span(uri: &Url, document: &SourceDocument, span: Span) -> Option
 #[cfg(test)]
 mod tests {
     use expect_test::expect;
-    use lsp_types::{Position, Range, TextDocumentContentChangeEvent, TextDocumentIdentifier};
+    use lsp_types::{
+        Position, Range, ReferenceContext, TextDocumentContentChangeEvent, TextDocumentIdentifier,
+    };
 
     use super::*;
 
@@ -513,6 +633,51 @@ mod tests {
         })
     }
 
+    fn render_locations(locations: &[Location]) -> String {
+        locations
+            .iter()
+            .map(|location| {
+                format!(
+                    "{}:{}-{}:{}",
+                    location.range.start.line,
+                    location.range.start.character,
+                    location.range.end.line,
+                    location.range.end.character
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn render_workspace_edit(edit: &WorkspaceEdit) -> String {
+        let mut rendered = Vec::new();
+        let Some(changes) = &edit.changes else {
+            return String::new();
+        };
+        for edits in changes.values() {
+            let mut edits = edits.clone();
+            edits.sort_by_key(|edit| {
+                (
+                    edit.range.start.line,
+                    edit.range.start.character,
+                    edit.range.end.line,
+                    edit.range.end.character,
+                )
+            });
+            rendered.extend(edits.into_iter().map(|edit| {
+                format!(
+                    "{}:{}-{}:{} => {}",
+                    edit.range.start.line,
+                    edit.range.start.character,
+                    edit.range.end.line,
+                    edit.range.end.character,
+                    edit.new_text
+                )
+            }));
+        }
+        rendered.join("\n")
+    }
+
     #[test]
     fn initialize_advertises_incremental_sync_and_semantic_tokens() {
         let capabilities = server().initialize_result().capabilities;
@@ -528,6 +693,14 @@ mod tests {
         ));
         assert!(capabilities.semantic_tokens_provider.is_some());
         assert!(capabilities.hover_provider.is_some());
+        assert!(capabilities.references_provider.is_some());
+        assert!(matches!(
+            capabilities.rename_provider,
+            Some(lsp_types::OneOf::Right(RenameOptions {
+                prepare_provider: Some(true),
+                ..
+            }))
+        ));
     }
 
     #[test]
@@ -845,6 +1018,346 @@ Unexpected end of file @ 1:13-1:13"#]]
         assert_eq!(location.uri, uri);
         assert_eq!(location.range.start.line, 1);
         assert_eq!(location.range.start.character, 4);
+    }
+
+    #[test]
+    fn goto_definition_on_shadowed_field_reference_prefers_field() {
+        let uri = uri("goto_shadowed_ref");
+        let mut server = server();
+        open_document(
+            &mut server,
+            &uri,
+            1,
+            "msg(@len: u16) = {\n    @len: u8,\n    data: [u8; @len],\n}\n",
+        );
+
+        let definition = server
+            .goto_definition(GotoDefinitionParams {
+                text_document_position_params: lsp_types::TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri: uri.clone() },
+                    position: Position::new(2, 16),
+                },
+                work_done_progress_params: Default::default(),
+                partial_result_params: Default::default(),
+            })
+            .expect("definition should exist");
+
+        let GotoDefinitionResponse::Scalar(location) = definition else {
+            panic!("expected scalar location");
+        };
+
+        assert_eq!(location.uri, uri);
+        assert_eq!(location.range.start.line, 1);
+        assert_eq!(location.range.start.character, 4);
+    }
+
+    #[test]
+    fn references_return_top_level_locations_with_optional_declaration() {
+        let uri = uri("refs_top_level");
+        let mut server = server();
+        open_document(
+            &mut server,
+            &uri,
+            1,
+            "other = u8\npacket = { field: other, next: other, }\n",
+        );
+
+        let with_declaration = server
+            .references(ReferenceParams {
+                text_document_position: lsp_types::TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri: uri.clone() },
+                    position: Position::new(1, 20),
+                },
+                work_done_progress_params: Default::default(),
+                partial_result_params: Default::default(),
+                context: ReferenceContext {
+                    include_declaration: true,
+                },
+            })
+            .expect("references should exist");
+        let without_declaration = server
+            .references(ReferenceParams {
+                text_document_position: lsp_types::TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri: uri.clone() },
+                    position: Position::new(1, 20),
+                },
+                work_done_progress_params: Default::default(),
+                partial_result_params: Default::default(),
+                context: ReferenceContext {
+                    include_declaration: false,
+                },
+            })
+            .expect("references should exist");
+
+        assert_eq!(
+            render_locations(&with_declaration),
+            "0:0-0:5\n1:18-1:23\n1:31-1:36"
+        );
+        assert_eq!(
+            render_locations(&without_declaration),
+            "1:18-1:23\n1:31-1:36"
+        );
+    }
+
+    #[test]
+    fn references_return_shadowed_local_locations() {
+        let uri = uri("refs_local");
+        let mut server = server();
+        open_document(
+            &mut server,
+            &uri,
+            1,
+            "msg(@len: u16) = {\n    @len: u8,\n    data: [u8; @len],\n    rest: [u8; @len],\n}\n",
+        );
+
+        let references = server
+            .references(ReferenceParams {
+                text_document_position: lsp_types::TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri: uri.clone() },
+                    position: Position::new(2, 16),
+                },
+                work_done_progress_params: Default::default(),
+                partial_result_params: Default::default(),
+                context: ReferenceContext {
+                    include_declaration: true,
+                },
+            })
+            .expect("references should exist");
+
+        assert_eq!(
+            render_locations(&references),
+            "1:4-1:8\n2:15-2:19\n3:15-3:19"
+        );
+    }
+
+    #[test]
+    fn rename_returns_edits_for_top_level_symbol() {
+        let uri = uri("rename_top_level");
+        let mut server = server();
+        open_document(
+            &mut server,
+            &uri,
+            1,
+            "other = u8\npacket = { field: other, next: other, }\n",
+        );
+
+        let edit = server
+            .rename(RenameParams {
+                text_document_position: lsp_types::TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri },
+                    position: Position::new(1, 20),
+                },
+                new_name: "size".into(),
+                work_done_progress_params: Default::default(),
+            })
+            .expect("rename should succeed")
+            .expect("workspace edit should exist");
+
+        assert_eq!(
+            render_workspace_edit(&edit),
+            "0:0-0:5 => size\n1:18-1:23 => size\n1:31-1:36 => size"
+        );
+    }
+
+    #[test]
+    fn prepare_rename_returns_reference_range_and_placeholder() {
+        let uri = uri("prepare_rename_top_level");
+        let mut server = server();
+        open_document(
+            &mut server,
+            &uri,
+            1,
+            "other = u8\npacket = { field: other, next: other, }\n",
+        );
+
+        let response = server
+            .prepare_rename(lsp_types::TextDocumentPositionParams {
+                text_document: TextDocumentIdentifier { uri },
+                position: Position::new(1, 20),
+            })
+            .expect("prepare rename should exist");
+
+        let PrepareRenameResponse::RangeWithPlaceholder { range, placeholder } = response else {
+            panic!("expected range with placeholder");
+        };
+
+        assert_eq!(placeholder, "other");
+        assert_eq!(range.start, Position::new(1, 18));
+        assert_eq!(range.end, Position::new(1, 23));
+    }
+
+    #[test]
+    fn prepare_rename_returns_dotted_dependent_base_range() {
+        let uri = uri("prepare_rename_dotted");
+        let mut server = server();
+        open_document(
+            &mut server,
+            &uri,
+            1,
+            "msg = {\n    @len: u16,\n    data: [u8; @len.value],\n}\n",
+        );
+
+        let response = server
+            .prepare_rename(lsp_types::TextDocumentPositionParams {
+                text_document: TextDocumentIdentifier { uri },
+                position: Position::new(2, 16),
+            })
+            .expect("prepare rename should exist");
+
+        let PrepareRenameResponse::RangeWithPlaceholder { range, placeholder } = response else {
+            panic!("expected range with placeholder");
+        };
+
+        assert_eq!(placeholder, "len");
+        assert_eq!(range.start, Position::new(2, 16));
+        assert_eq!(range.end, Position::new(2, 19));
+    }
+
+    #[test]
+    fn rename_returns_edits_for_shadowed_local_symbol() {
+        let uri = uri("rename_local");
+        let mut server = server();
+        open_document(
+            &mut server,
+            &uri,
+            1,
+            "msg(@len: u16) = {\n    @len: u8,\n    data: [u8; @len],\n    rest: [u8; @len],\n}\n",
+        );
+
+        let edit = server
+            .rename(RenameParams {
+                text_document_position: lsp_types::TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri },
+                    position: Position::new(2, 16),
+                },
+                new_name: "size".into(),
+                work_done_progress_params: Default::default(),
+            })
+            .expect("rename should succeed")
+            .expect("workspace edit should exist");
+
+        assert_eq!(
+            render_workspace_edit(&edit),
+            "1:4-1:8 => @size\n2:15-2:19 => @size\n3:15-3:19 => @size"
+        );
+    }
+
+    #[test]
+    fn rename_accepts_sigiled_new_name_for_dependent_symbol() {
+        let uri = uri("rename_local_sigiled_input");
+        let mut server = server();
+        open_document(
+            &mut server,
+            &uri,
+            1,
+            "msg(@len: u16) = {\n    @len: u8,\n    data: [u8; @len],\n}\n",
+        );
+
+        let edit = server
+            .rename(RenameParams {
+                text_document_position: lsp_types::TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri },
+                    position: Position::new(2, 16),
+                },
+                new_name: "@size".into(),
+                work_done_progress_params: Default::default(),
+            })
+            .expect("rename should succeed")
+            .expect("workspace edit should exist");
+
+        assert_eq!(
+            render_workspace_edit(&edit),
+            "1:4-1:8 => @size\n2:15-2:19 => @size"
+        );
+    }
+
+    #[test]
+    fn rename_preserves_dotted_dependent_suffixes() {
+        let uri = uri("rename_dotted_local");
+        let mut server = server();
+        open_document(
+            &mut server,
+            &uri,
+            1,
+            "msg = {\n    @len: u16,\n    data: [u8; @len.value],\n}\n",
+        );
+
+        let edit = server
+            .rename(RenameParams {
+                text_document_position: lsp_types::TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri },
+                    position: Position::new(2, 16),
+                },
+                new_name: "size".into(),
+                work_done_progress_params: Default::default(),
+            })
+            .expect("rename should succeed")
+            .expect("workspace edit should exist");
+
+        assert_eq!(
+            render_workspace_edit(&edit),
+            "1:4-1:8 => @size\n2:15-2:19 => @size"
+        );
+    }
+
+    #[test]
+    fn rename_rejects_invalid_new_name() {
+        let uri = uri("rename_invalid_name");
+        let mut server = server();
+        open_document(&mut server, &uri, 1, "packet = { field: u8, }\n");
+
+        let err = server
+            .rename(RenameParams {
+                text_document_position: lsp_types::TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri },
+                    position: Position::new(0, 1),
+                },
+                new_name: "9bad".into(),
+                work_done_progress_params: Default::default(),
+            })
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INVALID_PARAMS);
+    }
+
+    #[test]
+    fn rename_rejects_reserved_new_name() {
+        let uri = uri("rename_reserved_name");
+        let mut server = server();
+        open_document(&mut server, &uri, 1, "packet = { field: u8, }\n");
+
+        let err = server
+            .rename(RenameParams {
+                text_document_position: lsp_types::TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri },
+                    position: Position::new(0, 1),
+                },
+                new_name: "enum".into(),
+                work_done_progress_params: Default::default(),
+            })
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::INVALID_PARAMS);
+    }
+
+    #[test]
+    fn rename_rejects_non_symbol_location() {
+        let uri = uri("rename_invalid_target");
+        let mut server = server();
+        open_document(&mut server, &uri, 1, "packet = { field: u8, }\n");
+
+        let err = server
+            .rename(RenameParams {
+                text_document_position: lsp_types::TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri },
+                    position: Position::new(0, 9),
+                },
+                new_name: "size".into(),
+                work_done_progress_params: Default::default(),
+            })
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::REQUEST_FAILED);
     }
 
     #[test]
