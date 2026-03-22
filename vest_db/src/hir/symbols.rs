@@ -145,12 +145,11 @@ pub fn symbol_at_offset<'db>(
     byte_offset: usize,
 ) -> Option<SymbolId<'db>> {
     let hir = lower_to_hir(db, source);
-    symbol_at_offset_in_hir(db, &hir, byte_offset)
+    symbol_at_offset_in_hir(&hir, byte_offset)
 }
 
 /// Resolve the symbol occurrence under a byte offset from existing HIR.
 pub fn symbol_at_offset_in_hir<'db>(
-    _db: &'db dyn Db,
     hir: &FileHir<'db>,
     byte_offset: usize,
 ) -> Option<SymbolId<'db>> {
@@ -168,12 +167,11 @@ pub fn references_for_symbol<'db>(
     include_declaration: bool,
 ) -> Vec<SymbolOccurrence<'db>> {
     let hir = lower_to_hir(db, source);
-    references_for_symbol_in_hir(db, &hir, symbol, include_declaration)
+    references_for_symbol_in_hir(&hir, symbol, include_declaration)
 }
 
 /// Collect all references for a symbol from existing HIR.
 pub fn references_for_symbol_in_hir<'db>(
-    _db: &'db dyn Db,
     hir: &FileHir<'db>,
     symbol: SymbolId<'db>,
     include_declaration: bool,
@@ -819,8 +817,8 @@ mod tests {
         let (db, file) = setup("other = u8\npacket = { field: other, next: other, }\n");
         let hir = lower_to_hir(&db, file);
 
-        let symbol = symbol_at_offset_in_hir(&db, &hir, 30).unwrap();
-        let occurrences = references_for_symbol_in_hir(&db, &hir, symbol, true);
+        let symbol = symbol_at_offset_in_hir(&hir, 30).unwrap();
+        let occurrences = references_for_symbol_in_hir(&hir, symbol, true);
 
         assert_eq!(
             render_occurrences(&occurrences),
@@ -834,8 +832,8 @@ mod tests {
             setup("msg(@len: u16) = { @len: u8, data: [u8; @len], rest: [u8; @len], }\n");
         let hir = lower_to_hir(&db, file);
 
-        let symbol = symbol_at_offset_in_hir(&db, &hir, 41).unwrap();
-        let occurrences = references_for_symbol_in_hir(&db, &hir, symbol, true);
+        let symbol = symbol_at_offset_in_hir(&hir, 41).unwrap();
+        let occurrences = references_for_symbol_in_hir(&hir, symbol, true);
 
         assert!(
             symbol
@@ -857,14 +855,14 @@ mod tests {
         let (db, file) = setup("msg = { @len: u16, data: [u8; @len.value], }\n");
         let hir = lower_to_hir(&db, file);
 
-        let symbol = symbol_at_offset_in_hir(&db, &hir, 31).unwrap();
-        let occurrences = references_for_symbol_in_hir(&db, &hir, symbol, true);
+        let symbol = symbol_at_offset_in_hir(&hir, 31).unwrap();
+        let occurrences = references_for_symbol_in_hir(&hir, symbol, true);
 
         assert_eq!(
             render_occurrences(&occurrences),
             "declaration@8..12\nreference@30..34"
         );
-        assert!(symbol_at_offset_in_hir(&db, &hir, 35).is_none());
+        assert!(symbol_at_offset_in_hir(&hir, 35).is_none());
     }
 
     #[test]

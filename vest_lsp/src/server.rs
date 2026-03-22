@@ -168,7 +168,7 @@ impl VestServer {
         let db = self.workspace.db();
         let byte_offset = document.position_to_byte_offset(position).ok()?;
         let hir = lower_to_hir_with_parse(db, source_file, parse);
-        let symbol = symbol_at_offset_in_hir(db, &hir, byte_offset)?;
+        let symbol = symbol_at_offset_in_hir(&hir, byte_offset)?;
         location_for_span(&uri, document, symbol.declaration_span())
             .map(GotoDefinitionResponse::Scalar)
     }
@@ -182,10 +182,10 @@ impl VestServer {
         let db = self.workspace.db();
         let byte_offset = document.position_to_byte_offset(position).ok()?;
         let hir = lower_to_hir_with_parse(db, source_file, parse);
-        let symbol = symbol_at_offset_in_hir(db, &hir, byte_offset)?;
+        let symbol = symbol_at_offset_in_hir(&hir, byte_offset)?;
 
         Some(
-            references_for_symbol_in_hir(db, &hir, symbol, params.context.include_declaration)
+            references_for_symbol_in_hir(&hir, symbol, params.context.include_declaration)
                 .into_iter()
                 .filter_map(|occurrence| location_for_span(&uri, document, occurrence.span))
                 .collect(),
@@ -205,8 +205,8 @@ impl VestServer {
         let db = self.workspace.db();
         let byte_offset = document.position_to_byte_offset(position).ok()?;
         let hir = lower_to_hir_with_parse(db, source_file, parse);
-        let symbol = symbol_at_offset_in_hir(db, &hir, byte_offset)?;
-        let occurrence = references_for_symbol_in_hir(db, &hir, symbol, true)
+        let symbol = symbol_at_offset_in_hir(&hir, byte_offset)?;
+        let occurrence = references_for_symbol_in_hir(&hir, symbol, true)
             .into_iter()
             .find(|occurrence| occurrence.span.contains(byte_offset))?;
         let prepare_span = symbol.prepare_rename_span(occurrence.span);
@@ -244,7 +244,7 @@ impl VestServer {
             )
         })?;
         let hir = lower_to_hir_with_parse(db, source_file, parse);
-        let symbol = symbol_at_offset_in_hir(db, &hir, byte_offset).ok_or_else(|| {
+        let symbol = symbol_at_offset_in_hir(&hir, byte_offset).ok_or_else(|| {
             self.log_message(
                 MessageType::WARNING,
                 format!(
@@ -267,7 +267,7 @@ impl VestServer {
             ));
         }
 
-        let edits = references_for_symbol_in_hir(db, &hir, symbol, true)
+        let edits = references_for_symbol_in_hir(&hir, symbol, true)
             .into_iter()
             .filter_map(|occurrence| {
                 Some(TextEdit {
@@ -349,7 +349,6 @@ impl VestServer {
         }
     }
 
-    #[allow(dead_code)]
     pub fn contains(&self, uri: &Url) -> bool {
         self.workspace.contains(uri)
     }
