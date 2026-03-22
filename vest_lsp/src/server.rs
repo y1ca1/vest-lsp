@@ -11,17 +11,20 @@ use lsp_types::request;
 use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionOptions, CompletionParams, CompletionResponse,
     Diagnostic, DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, Hover, HoverContents, HoverParams, HoverProviderCapability,
-    InitializeParams, InitializeResult, MarkupContent, MarkupKind, PublishDiagnosticsParams,
-    SemanticToken, SemanticTokenModifier, SemanticTokenType, SemanticTokens,
-    SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams,
-    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo,
-    TextDocumentItem, TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
-    Url,
+    DidOpenTextDocumentParams, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents,
+    HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, Location,
+    MarkupContent, MarkupKind, PublishDiagnosticsParams, SemanticToken, SemanticTokenModifier,
+    SemanticTokenType, SemanticTokens, SemanticTokensFullOptions, SemanticTokensLegend,
+    SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult,
+    SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo, TextDocumentItem,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions, Url,
 };
 use tower::ServiceBuilder;
 use tracing::{Level, warn};
-use vest_db::SourceDocument;
+use vest_db::{
+    Name, SourceDocument, Span, definition_at_offset, reference_name_text, resolve_local_symbol,
+    resolve_symbol,
+};
 use vest_syntax::{SemanticToken as SyntaxToken, SemanticTokenKind};
 
 use crate::workspace::{Workspace, WorkspaceError};
@@ -52,6 +55,7 @@ impl VestServer {
                     },
                 )),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
+                definition_provider: Some(lsp_types::OneOf::Left(true)),
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
                     trigger_characters: Some(vec!["=".into(), "@".into(), "|".into()]),
@@ -134,6 +138,28 @@ impl VestServer {
 
     pub fn completion(&self, _params: CompletionParams) -> CompletionResponse {
         CompletionResponse::Array(completion_items())
+    }
+
+    pub fn goto_definition(&self, params: GotoDefinitionParams) -> Option<GotoDefinitionResponse> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+
+        let document = self.workspace.document(&uri)?;
+        let source_file = self.workspace.source_file(&uri)?;
+        let parse = self.workspace.parse(&uri)?;
+        let db = self.workspace.db();
+        let byte_offset = document.position_to_byte_offset(position).ok()?;
+        let reference = reference_node(parse.node_at_byte(byte_offset)?)?;
+        let name = reference_name(db, document, reference)?;
+
+        if let Some(definition) = definition_at_offset(db, source_file, byte_offset)
+            && let Some(span) = resolve_local_symbol(db, &definition, name)
+        {
+            return location_for_span(&uri, document, span).map(GotoDefinitionResponse::Scalar);
+        }
+
+        let definition = resolve_symbol(db, source_file, name)?;
+        location_for_span(&uri, document, definition.span).map(GotoDefinitionResponse::Scalar)
     }
 
     pub fn semantic_tokens_full(
@@ -226,6 +252,10 @@ pub async fn run_stdio_server() -> async_lsp::Result<()> {
             .request::<request::SemanticTokensFullRequest, _>(|state, params| {
                 let tokens = state.semantic_tokens_full(params);
                 async move { Ok(tokens) }
+            })
+            .request::<request::GotoDefinition, _>(|state, params| {
+                let definition = state.goto_definition(params);
+                async move { Ok(definition) }
             })
             .notification::<notification::Initialized>(|state, _| {
                 state.initialized();
@@ -415,6 +445,42 @@ fn encode_semantic_tokens(
     Some(data)
 }
 
+fn reference_node(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
+    let mut current = Some(node);
+    let mut identifier = None;
+
+    while let Some(node) = current {
+        match node.kind() {
+            "depend_id" | "var_id" | "variant_id" => return Some(node),
+            "identifier" => identifier = Some(node),
+            _ => {}
+        }
+        current = node.parent();
+    }
+
+    identifier
+}
+
+fn reference_name<'db>(
+    db: &'db dyn vest_db::Db,
+    document: &SourceDocument,
+    node: tree_sitter::Node<'_>,
+) -> Option<Name<'db>> {
+    let text = document.text().get(node.byte_range())?;
+    let normalized = reference_name_text(node.kind(), text)?;
+    Some(Name::new(db, normalized))
+}
+
+fn location_for_span(uri: &Url, document: &SourceDocument, span: Span) -> Option<Location> {
+    let range = document
+        .byte_range_to_lsp_range(span.start_byte, span.end_byte)
+        .ok()?;
+    Some(Location {
+        uri: uri.clone(),
+        range,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use expect_test::expect;
@@ -571,5 +637,177 @@ Unexpected end of file @ 1:13-1:13"#]]
             err.to_string(),
             "document is not open: file:///tmp/missing.vest"
         );
+    }
+
+    #[test]
+    fn goto_definition_resolves_type_reference() {
+        let uri = uri("goto");
+        let mut server = server();
+        // "other" is defined on line 0 (byte 0-12)
+        // "packet" references "other" at line 1, column 15
+        open_document(
+            &mut server,
+            &uri,
+            1,
+            "other = u8\npacket = { field: other, }\n",
+        );
+
+        let definition = server
+            .goto_definition(GotoDefinitionParams {
+                text_document_position_params: lsp_types::TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri: uri.clone() },
+                    position: Position::new(1, 18), // cursor on "other" reference
+                },
+                work_done_progress_params: Default::default(),
+                partial_result_params: Default::default(),
+            })
+            .expect("definition should exist");
+
+        let GotoDefinitionResponse::Scalar(location) = definition else {
+            panic!("expected scalar location");
+        };
+
+        assert_eq!(location.uri, uri);
+        // Definition starts at line 0, column 0
+        assert_eq!(location.range.start.line, 0);
+        assert_eq!(location.range.start.character, 0);
+    }
+
+    #[test]
+    fn goto_definition_resolves_dependent_parameter_reference() {
+        let uri = uri("goto_local");
+        let mut server = server();
+        open_document(&mut server, &uri, 1, "msg(@len: u16) = [u8; @len]\n");
+
+        let definition = server
+            .goto_definition(GotoDefinitionParams {
+                text_document_position_params: lsp_types::TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri: uri.clone() },
+                    position: Position::new(0, 23),
+                },
+                work_done_progress_params: Default::default(),
+                partial_result_params: Default::default(),
+            })
+            .expect("definition should exist");
+
+        let GotoDefinitionResponse::Scalar(location) = definition else {
+            panic!("expected scalar location");
+        };
+
+        assert_eq!(location.uri, uri);
+        assert_eq!(location.range.start.line, 0);
+        assert_eq!(location.range.start.character, 4);
+    }
+
+    #[test]
+    fn goto_definition_resolves_macro_parameter_reference() {
+        let uri = uri("goto_macro");
+        let mut server = server();
+        open_document(&mut server, &uri, 1, "macro copy!(x) = x\n");
+
+        let definition = server
+            .goto_definition(GotoDefinitionParams {
+                text_document_position_params: lsp_types::TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri: uri.clone() },
+                    position: Position::new(0, 17),
+                },
+                work_done_progress_params: Default::default(),
+                partial_result_params: Default::default(),
+            })
+            .expect("definition should exist");
+
+        let GotoDefinitionResponse::Scalar(location) = definition else {
+            panic!("expected scalar location");
+        };
+
+        assert_eq!(location.uri, uri);
+        assert_eq!(location.range.start.line, 0);
+        assert_eq!(location.range.start.character, 12);
+    }
+
+    #[test]
+    fn goto_definition_resolves_dotted_dependent_reference() {
+        let uri = uri("goto_dotted");
+        let mut server = server();
+        open_document(
+            &mut server,
+            &uri,
+            1,
+            "msg = { @len: u16, data: [u8; @len.value], }\n",
+        );
+
+        let definition = server
+            .goto_definition(GotoDefinitionParams {
+                text_document_position_params: lsp_types::TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri: uri.clone() },
+                    position: Position::new(0, 31),
+                },
+                work_done_progress_params: Default::default(),
+                partial_result_params: Default::default(),
+            })
+            .expect("definition should exist");
+
+        let GotoDefinitionResponse::Scalar(location) = definition else {
+            panic!("expected scalar location");
+        };
+
+        assert_eq!(location.uri, uri);
+        assert_eq!(location.range.start.line, 0);
+        assert_eq!(location.range.start.character, 8);
+    }
+
+    #[test]
+    fn goto_definition_resolves_enum_definition_reference() {
+        let uri = uri("goto_enum");
+        let mut server = server();
+        open_document(
+            &mut server,
+            &uri,
+            1,
+            "my_enum = enum { A = 0, }\npacket = my_enum\n",
+        );
+
+        let definition = server
+            .goto_definition(GotoDefinitionParams {
+                text_document_position_params: lsp_types::TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri: uri.clone() },
+                    position: Position::new(1, 10),
+                },
+                work_done_progress_params: Default::default(),
+                partial_result_params: Default::default(),
+            })
+            .expect("definition should exist");
+
+        let GotoDefinitionResponse::Scalar(location) = definition else {
+            panic!("expected scalar location");
+        };
+
+        assert_eq!(location.uri, uri);
+        assert_eq!(location.range.start.line, 0);
+        assert_eq!(location.range.start.character, 0);
+    }
+
+    #[test]
+    fn goto_definition_returns_none_for_non_identifier() {
+        let uri = uri("goto2");
+        let mut server = server();
+        open_document(&mut server, &uri, 1, "packet = { field: u8, }\n");
+
+        let definition = server.goto_definition(GotoDefinitionParams {
+            text_document_position_params: lsp_types::TextDocumentPositionParams {
+                text_document: TextDocumentIdentifier { uri: uri.clone() },
+                position: Position::new(0, 9), // cursor on "{"
+            },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        });
+
+        assert!(definition.is_none());
+    }
+
+    #[test]
+    fn initialize_advertises_definition_provider() {
+        let capabilities = server().initialize_result().capabilities;
+        assert!(capabilities.definition_provider.is_some());
     }
 }

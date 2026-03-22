@@ -3,21 +3,31 @@ use std::collections::HashMap;
 use lsp_types::{TextDocumentContentChangeEvent, TextDocumentItem, Url};
 use thiserror::Error;
 use tree_sitter::InputEdit;
-use vest_db::{SourceDatabase, SourceDocument, SourceError};
+use vest_db::{Database, Setter, SourceDatabase, SourceDocument, SourceError, SourceFile};
 use vest_syntax::{Parse, parse, parse_with_edits};
 
 struct DocumentState {
     parse: Parse,
+    /// Salsa input for HIR and semantic analysis.
+    file: SourceFile,
 }
 
 /// Authoritative hot-path state for the current LSP session.
 ///
-/// This keeps editor-facing text state and the live incremental CST cache together.
-/// Salsa-backed analysis is staged separately until HIR exists.
+/// This keeps editor-facing text state and the live incremental CST cache together,
+/// while also maintaining Salsa inputs for semantic queries above the CST.
 pub struct Workspace {
     sources: SourceDatabase,
     documents: HashMap<Url, DocumentState>,
     revision: u64,
+    /// Salsa database for HIR and semantic analysis.
+    db: Database,
+}
+
+impl Default for Workspace {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Workspace {
@@ -26,11 +36,16 @@ impl Workspace {
             sources: SourceDatabase::new(),
             documents: HashMap::new(),
             revision: 0,
+            db: Database::new(),
         }
     }
 
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+
+    pub fn db(&self) -> &dyn vest_db::Db {
+        &self.db
     }
 
     pub fn open_document(&mut self, document: TextDocumentItem) {
@@ -40,10 +55,20 @@ impl Workspace {
 
         self.sources.open(uri.clone(), version, text.clone());
 
+        let file = match self.documents.get(&uri).map(|state| state.file) {
+            Some(file) => {
+                file.set_version(&mut self.db).to(version);
+                file.set_text(&mut self.db).to(text.clone());
+                file
+            }
+            None => SourceFile::new(&self.db, uri.to_string(), version, text.clone()),
+        };
+
         self.documents.insert(
             uri,
             DocumentState {
                 parse: parse(&text),
+                file,
             },
         );
         self.bump_revision();
@@ -74,6 +99,9 @@ impl Workspace {
 
         if let Some(state) = self.documents.get_mut(uri) {
             state.parse = updated_parse;
+            // Update Salsa input
+            state.file.set_version(&mut self.db).to(version);
+            state.file.set_text(&mut self.db).to(text);
         }
 
         self.bump_revision();
@@ -100,6 +128,10 @@ impl Workspace {
 
     pub fn parse(&self, uri: &Url) -> Option<&Parse> {
         self.documents.get(uri).map(|state| &state.parse)
+    }
+
+    pub fn source_file(&self, uri: &Url) -> Option<SourceFile> {
+        self.documents.get(uri).map(|state| state.file)
     }
 
     fn bump_revision(&mut self) {
