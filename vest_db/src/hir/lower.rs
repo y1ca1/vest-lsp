@@ -78,8 +78,27 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
         ))
     }
 
+    fn dependent_projection_fields(&self, node: Node<'_>) -> Vec<Name<'db>> {
+        let text = self.node_text(node).trim();
+        let binding = text.strip_prefix('@').unwrap_or(text);
+        binding
+            .split('.')
+            .skip(1)
+            .filter(|field| !field.is_empty())
+            .map(|field| self.intern(field))
+            .collect()
+    }
+
     fn node_text(&self, node: Node<'_>) -> &'src str {
         node.utf8_text(self.source.as_bytes()).unwrap_or("")
+    }
+
+    fn emit(&mut self, kind: HirDiagnosticKind<'db>, message: String, span: Span) {
+        self.diagnostics.push(HirDiagnostic {
+            message,
+            span,
+            kind,
+        });
     }
 
     fn lower_source_file(&mut self, root: Node<'_>) {
@@ -308,6 +327,7 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
             (Some(inner), Some(target)) => Combinator::Bind {
                 inner: Box::new(inner),
                 target: Box::new(target),
+                span: Span::from_node(&node),
             },
             (Some(inner), None) => inner,
             _ => Combinator::Error,
@@ -415,7 +435,10 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
             match child.kind() {
                 "const_int_range" => return Some(self.lower_const_int_range(child)),
                 "const_int" => {
-                    return Some(ConstraintElement::Single(self.lower_const_int(child)));
+                    return Some(ConstraintElement::Single {
+                        value: self.lower_const_int(child),
+                        span: Span::from_node(&child),
+                    });
                 }
                 _ => {}
             }
@@ -441,10 +464,14 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
             }
         }
 
-        ConstraintElement::Range { start, end }
+        ConstraintElement::Range {
+            start,
+            end,
+            span: Span::from_node(&node),
+        }
     }
 
-    fn lower_const_int(&self, node: Node<'_>) -> ConstValue<'db> {
+    fn lower_const_int(&mut self, node: Node<'_>) -> ConstValue<'db> {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             match child.kind() {
@@ -453,6 +480,12 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
                     if let Ok(val) = text.parse::<u64>() {
                         return ConstValue::Int(val);
                     }
+                    self.emit(
+                        HirDiagnosticKind::InvalidConstant,
+                        format!("integer literal `{}` does not fit in u64", text),
+                        Span::from_node(&child),
+                    );
+                    return ConstValue::Int(0);
                 }
                 "hex" => {
                     let text = self.node_text(child);
@@ -460,6 +493,12 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
                     if let Ok(val) = u64::from_str_radix(hex_str, 16) {
                         return ConstValue::Int(val);
                     }
+                    self.emit(
+                        HirDiagnosticKind::InvalidConstant,
+                        format!("integer literal `{}` does not fit in u64", text),
+                        Span::from_node(&child),
+                    );
+                    return ConstValue::Int(0);
                 }
                 "ascii" => {
                     let text = self.node_text(child);
@@ -471,14 +510,31 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
                         if let Ok(val) = u64::from_str_radix(hex_str, 16) {
                             return ConstValue::Int(val);
                         }
+                        self.emit(
+                            HirDiagnosticKind::InvalidConstant,
+                            format!("invalid ascii byte literal `{}`", text),
+                            Span::from_node(&child),
+                        );
+                        return ConstValue::Int(0);
                     } else if text.len() == 3 && text.starts_with('\'') && text.ends_with('\'') {
                         let c = text.chars().nth(1).unwrap_or('\0');
                         return ConstValue::Int(c as u64);
                     }
+                    self.emit(
+                        HirDiagnosticKind::InvalidConstant,
+                        format!("invalid ascii byte literal `{}`", text),
+                        Span::from_node(&child),
+                    );
+                    return ConstValue::Int(0);
                 }
                 _ => {}
             }
         }
+        self.emit(
+            HirDiagnosticKind::InvalidConstant,
+            "invalid integer literal".to_string(),
+            Span::from_node(&node),
+        );
         ConstValue::Int(0)
     }
 
@@ -738,6 +794,7 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
         // For const bytes, we return an array type - the values are stored in const_value
         let mut int_type = None;
         let mut length = None;
+        let mut const_value = None;
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -747,6 +804,9 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
                 }
                 "const_int" => {
                     length = Some(self.lower_const_int(child));
+                }
+                "const_array" => {
+                    const_value = self.lower_const_array_value(child);
                 }
                 _ => {}
             }
@@ -765,7 +825,7 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
                         ops: Vec::new(),
                     },
                 };
-                (Some(Combinator::Array(arr)), Some(l))
+                (Some(Combinator::Array(arr)), const_value.or(Some(l)))
             }
             _ => (None, None),
         }
@@ -972,7 +1032,14 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
                 }
                 "depend_id" => {
                     if let Some(name_ref) = self.dependent_name_ref(child) {
-                        return LengthAtom::Param(name_ref);
+                        let fields = self.dependent_projection_fields(child);
+                        if fields.is_empty() {
+                            return LengthAtom::Param(name_ref);
+                        }
+                        return LengthAtom::ProjectedParam {
+                            base: name_ref,
+                            fields,
+                        };
                     }
                 }
                 "size_expr" => {
@@ -1186,6 +1253,27 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
         values
     }
 
+    fn lower_const_array_value(&mut self, node: Node<'_>) -> Option<ConstValue<'db>> {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            match child.kind() {
+                "const_char_array" => {
+                    let text = self.node_text(child);
+                    let content = text.trim_matches('"');
+                    return Some(ConstValue::ByteString(NameRef::new(
+                        self.intern(content),
+                        Span::from_node(&child),
+                    )));
+                }
+                "const_int_array" => {
+                    return Some(ConstValue::Array(self.lower_const_int_array_values(child)));
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
     fn lower_combinator_invocation(&mut self, node: Node<'_>) -> Combinator<'db> {
         let mut name = None;
         let mut args = Vec::new();
@@ -1335,9 +1423,15 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
         }
 
         match (name, span, value) {
-            (Some(name), Some(span), Some(value)) => {
-                Some((EnumVariant { name, value, span }, repr_type))
-            }
+            (Some(name), Some(span), Some(value)) => Some((
+                EnumVariant {
+                    name,
+                    value,
+                    repr_type,
+                    span,
+                },
+                repr_type,
+            )),
             _ => None,
         }
     }
@@ -1582,7 +1676,7 @@ mod tests {
                 format!("wrap({args})")
             }
             Combinator::Tail => "Tail".to_string(),
-            Combinator::Bind { inner, target } => {
+            Combinator::Bind { inner, target, .. } => {
                 format!(
                     "{} >>= {}",
                     format_combinator(db, inner),
@@ -1645,6 +1739,14 @@ mod tests {
         match atom {
             LengthAtom::Const(v) => v.to_string(),
             LengthAtom::Param(p) => format!("@{}", p.as_str(db)),
+            LengthAtom::ProjectedParam { base, fields } => {
+                let suffix = fields
+                    .iter()
+                    .map(|field| field.as_str(db))
+                    .collect::<Vec<_>>()
+                    .join(".");
+                format!("@{}.{}", base.as_str(db), suffix)
+            }
             LengthAtom::SizeOf(target) => match target {
                 SizeTarget::Type(t) => format!("|{t:?}|").to_lowercase(),
                 SizeTarget::Named(n) => format!("|{}|", n.as_str(db)),
@@ -1657,6 +1759,15 @@ mod tests {
         match val {
             ConstValue::Int(v) => v.to_string(),
             ConstValue::String(s) => format!("\"{}\"", s.as_str(db)),
+            ConstValue::ByteString(s) => format!("\"{}\"", s.as_str(db)),
+            ConstValue::Array(values) => {
+                let values = values
+                    .iter()
+                    .map(|v| format_const_value(db, v))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("[{values}]")
+            }
         }
     }
 
@@ -1688,7 +1799,7 @@ mod tests {
     fn lower_dotted_dependent_reference_uses_binding_name() {
         check(
             "msg = { @len: u16, data: [u8; @len.value], }\n",
-            expect![[r#"msg = { @len: u16, data: [u8; @len] }"#]],
+            expect![[r#"msg = { @len: u16, data: [u8; @len.value] }"#]],
         );
     }
 
@@ -1712,12 +1823,14 @@ mod tests {
         let Combinator::Array(array) = &struct_.fields[1].ty else {
             panic!("expected array field");
         };
-        let LengthAtom::Param(name_ref) = &array.length.terms[0].atoms[0] else {
+        let LengthAtom::ProjectedParam { base, fields } = &array.length.terms[0].atoms[0] else {
             panic!("expected dependent length reference");
         };
 
-        assert_eq!(name_ref.name.as_str(&db), "len");
-        assert_eq!(name_ref.span, Span::new(30, 34));
+        assert_eq!(base.name.as_str(&db), "len");
+        assert_eq!(base.span, Span::new(30, 34));
+        assert_eq!(fields.len(), 1);
+        assert_eq!(fields[0].as_str(&db), "value");
     }
 
     #[test]

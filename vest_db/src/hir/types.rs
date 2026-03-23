@@ -259,6 +259,7 @@ pub enum Combinator<'db> {
     Bind {
         inner: Box<Combinator<'db>>,
         target: Box<Combinator<'db>>,
+        span: Span,
     },
 
     /// Lowering error placeholder
@@ -322,11 +323,23 @@ pub struct IntConstraint<'db> {
 
 #[derive(Clone, PartialEq, Eq)]
 pub enum ConstraintElement<'db> {
-    Single(ConstValue<'db>),
+    Single {
+        value: ConstValue<'db>,
+        span: Span,
+    },
     Range {
         start: Option<ConstValue<'db>>,
         end: Option<ConstValue<'db>>,
+        span: Span,
     },
+}
+
+impl<'db> ConstraintElement<'db> {
+    pub fn span(&self) -> Span {
+        match self {
+            ConstraintElement::Single { span, .. } | ConstraintElement::Range { span, .. } => *span,
+        }
+    }
 }
 
 /// A struct combinator with ordered fields.
@@ -429,6 +442,10 @@ pub struct LengthTerm<'db> {
 pub enum LengthAtom<'db> {
     Const(u64),
     Param(NameRef<'db>),
+    ProjectedParam {
+        base: NameRef<'db>,
+        fields: Vec<Name<'db>>,
+    },
     SizeOf(SizeTarget<'db>),
     Paren(Box<LengthExpr<'db>>),
 }
@@ -460,6 +477,7 @@ pub struct EnumDef<'db> {
 pub struct EnumVariant<'db> {
     pub name: Name<'db>,
     pub value: ConstValue<'db>,
+    pub repr_type: Option<IntType>,
     pub span: Span,
 }
 
@@ -476,13 +494,15 @@ pub struct Param<'db> {
 pub enum ConstValue<'db> {
     Int(u64),
     String(NameRef<'db>),
+    ByteString(NameRef<'db>),
+    Array(Vec<ConstValue<'db>>),
 }
 
 impl<'db> ConstValue<'db> {
     pub fn as_int(&self) -> Option<u64> {
         match self {
             ConstValue::Int(v) => Some(*v),
-            ConstValue::String(_) => None,
+            ConstValue::String(_) | ConstValue::ByteString(_) | ConstValue::Array(_) => None,
         }
     }
 }

@@ -229,7 +229,7 @@ fn collect_refs_recursive<'db>(comb: &Combinator<'db>, refs: &mut Vec<Name<'db>>
                 }
             }
         }
-        Combinator::Bind { inner, target } => {
+        Combinator::Bind { inner, target, .. } => {
             collect_refs_recursive(inner, refs);
             collect_refs_recursive(target, refs);
         }
@@ -245,6 +245,7 @@ fn collect_length_refs<'db>(expr: &LengthExpr<'db>, refs: &mut Vec<Name<'db>>) {
         for atom in &term.atoms {
             match atom {
                 LengthAtom::Param(p) => refs.push(p.name),
+                LengthAtom::ProjectedParam { base, .. } => refs.push(base.name),
                 LengthAtom::SizeOf(SizeTarget::Named(n)) => refs.push(n.name),
                 LengthAtom::Paren(e) => collect_length_refs(e, refs),
                 _ => {}
@@ -506,7 +507,7 @@ fn collect_combinator_occurrences<'db>(
                 }
             }
         }
-        Combinator::Bind { inner, target } => {
+        Combinator::Bind { inner, target, .. } => {
             collect_combinator_occurrences(hir, owner, inner, visible, occurrences);
             collect_combinator_occurrences(hir, owner, target, visible, occurrences);
         }
@@ -532,6 +533,16 @@ fn collect_length_occurrences<'db>(
                             occurrences,
                             binding.symbol,
                             param.span,
+                            SymbolOccurrenceKind::Reference,
+                        );
+                    }
+                }
+                LengthAtom::ProjectedParam { base, .. } => {
+                    if let Some(binding) = resolve_local_binding(visible, base.name) {
+                        push_occurrence(
+                            occurrences,
+                            binding.symbol,
+                            base.span,
                             SymbolOccurrenceKind::Reference,
                         );
                     }

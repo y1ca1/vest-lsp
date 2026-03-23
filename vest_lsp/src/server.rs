@@ -25,7 +25,7 @@ use lsp_types::{
 use tower::ServiceBuilder;
 use tracing::{Level, warn};
 use vest_db::{
-    SourceDocument, Span, is_valid_identifier_text, lower_to_hir_with_parse,
+    SourceDocument, Span, check_file, is_valid_identifier_text, lower_to_hir_with_parse,
     references_for_symbol_in_hir, symbol_at_offset_in_hir,
 };
 use vest_syntax::{SemanticToken as SyntaxToken, SemanticTokenKind};
@@ -314,7 +314,7 @@ impl VestServer {
             return Vec::new();
         };
 
-        parse
+        let mut diagnostics: Vec<Diagnostic> = parse
             .diagnostics()
             .iter()
             .filter_map(|diagnostic| {
@@ -328,7 +328,29 @@ impl VestServer {
                     ..Diagnostic::default()
                 })
             })
-            .collect()
+            .collect();
+
+        // Add type checking diagnostics
+        if let Some(file) = self.workspace.source_file(uri) {
+            let db = self.workspace.db();
+            let check_diagnostics = check_file(db, file);
+
+            for diag in check_diagnostics {
+                if let Ok(range) =
+                    document.byte_range_to_lsp_range(diag.span.start_byte, diag.span.end_byte)
+                {
+                    diagnostics.push(Diagnostic {
+                        range,
+                        severity: Some(DiagnosticSeverity::ERROR),
+                        source: Some("vest_lsp".into()),
+                        message: diag.message,
+                        ..Diagnostic::default()
+                    });
+                }
+            }
+        }
+
+        diagnostics
     }
 
     pub fn publish_diagnostics(
