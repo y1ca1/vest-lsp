@@ -1,0 +1,86 @@
+{
+  "name": "vest",
+  "displayName": "Vest",
+  "description": "Language support for the Vest DSL with the Vest language server.",
+  "version": "0.1.0",
+  "publisher": "vest-dsl",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vest-dsl/vest-lsp"
+  },
+  "engines": {
+    "vscode": "^1.109.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "vest",
+    "binary",
+    "dsl",
+    "lsp"
+  ],
+  "main": "./extension.js",
+  "extensionKind": [
+    "workspace"
+  ],
+  "activationEvents": [
+    "onLanguage:vest",
+    "onCommand:vest.restartLanguageServer"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "vest",
+        "aliases": [
+          "Vest",
+          "vest"
+        ],
+        "extensions": [
+          ".vest"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "vest",
+        "scopeName": "source.vest",
+        "path": "./syntaxes/vest.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "vest.restartLanguageServer",
+        "title": "Vest: Restart Language Server"
+      }
+    ],
+    "configuration": {
+      "title": "Vest",
+      "properties": {
+        "vest.languageServer.path": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Absolute path to the Vest language server binary. When empty, the extension uses its bundled binary and then falls back to `vest_lsp` on `PATH`."
+        },
+        "vest.languageServer.arguments": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "markdownDescription": "Extra command-line arguments passed to the Vest language server."
+        },
+        "vest.languageServer.environment": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "string"
+          },
+          "markdownDescription": "Extra environment variables passed to the Vest language server."
+        }
+      }
+    }
+  }
+}

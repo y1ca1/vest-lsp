@@ -1,0 +1,117 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Vest",
+  "scopeName": "source.vest",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#directives"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#primitiveTypes"
+    },
+    {
+      "include": "#dependentIdentifiers"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#chars"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#constants"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.vest",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.vest",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "directives": {
+      "patterns": [
+        {
+          "name": "keyword.control.directive.vest",
+          "match": "!(?:LITTLE_ENDIAN|BIG_ENDIAN)\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.vest",
+          "match": "\\b(?:const|enum|choose|wrap|Vec|Option|Tail|secret|public)\\b"
+        }
+      ]
+    },
+    "primitiveTypes": {
+      "patterns": [
+        {
+          "name": "storage.type.primitive.vest",
+          "match": "\\b(?:[ui](?:8|16|24|32|64)|btc_varint|uleb128)\\b"
+        }
+      ]
+    },
+    "dependentIdentifiers": {
+      "patterns": [
+        {
+          "name": "variable.parameter.dependent.vest",
+          "match": "@[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.vest",
+          "match": "\"(?:[^\"\\\\]|\\\\.)*\""
+        }
+      ]
+    },
+    "chars": {
+      "patterns": [
+        {
+          "name": "constant.character.vest",
+          "match": "'(?:\\\\x[0-9A-Fa-f]{2}|[^\\\\'])'"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.vest",
+          "match": "\\b0x[0-9A-Fa-f]+\\b"
+        },
+        {
+          "name": "constant.numeric.decimal.vest",
+          "match": "\\b\\d+\\b"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "entity.name.type.vest",
+          "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+        }
+      ]
+    }
+  }
+}
