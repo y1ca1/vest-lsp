@@ -25,8 +25,8 @@ use lsp_types::{
 use tower::ServiceBuilder;
 use tracing::{Level, warn};
 use vest_db::{
-    SourceDocument, Span, check_file, is_valid_identifier_text, lower_to_hir_with_parse,
-    references_for_symbol_in_hir, symbol_at_offset_in_hir,
+    SourceDocument, Span, check_file, hover_info_in_hir, is_valid_identifier_text,
+    lower_to_hir_with_parse, references_for_symbol_in_hir, symbol_at_offset_in_hir,
 };
 use vest_syntax::{SemanticToken as SyntaxToken, SemanticTokenKind};
 
@@ -129,19 +129,43 @@ impl VestServer {
         let document = self.workspace.document(&uri)?;
         let parse = self.workspace.parse(&uri)?;
         let byte_offset = document.position_to_byte_offset(position).ok()?;
+        let text = document.text();
+        let hovered_byte = *text.as_bytes().get(byte_offset)?;
+        if hovered_byte.is_ascii_whitespace() {
+            return None;
+        }
         let node = parse.node_at_byte(byte_offset)?;
-        let snippet = document
-            .text()
-            .get(node.byte_range())
+
+        if node.kind() == "comment" {
+            return None;
+        }
+
+        let source_file = self.workspace.source_file(&uri)?;
+        let db = self.workspace.db();
+        let hir = lower_to_hir_with_parse(db, source_file, &parse);
+        let hover_info = hover_info_in_hir(db, &hir, byte_offset)?;
+        let snippet = text
+            .get(hover_info.snippet_span.start_byte..hover_info.snippet_span.end_byte)
             .unwrap_or("")
             .trim()
             .to_string();
+        let doc_comment = self.extract_doc_comment(document, hover_info.snippet_span.start_byte);
+        let wire_info = hover_info
+            .wire_length
+            .as_ref()
+            .map(|wire_length| wire_length.markdown(db))
+            .unwrap_or_default();
 
-        let detail = if snippet.is_empty() {
-            format!("`{}`", node.kind())
+        let mut detail = if snippet.is_empty() {
+            format!("`{}`", hover_info.kind.label())
         } else {
-            format!("```vest\n{snippet}\n```\n\n`{}`", node.kind())
+            format!("```vest\n{snippet}\n```\n\n`{}`", hover_info.kind.label())
         };
+        if !wire_info.is_empty() {
+            detail.push_str("\n\n");
+            detail.push_str(&wire_info);
+        }
+        detail.push_str(&doc_comment);
 
         Some(Hover {
             contents: HoverContents::Markup(MarkupContent {
@@ -149,9 +173,43 @@ impl VestServer {
                 value: detail,
             }),
             range: document
-                .byte_range_to_lsp_range(node.start_byte(), node.end_byte())
+                .byte_range_to_lsp_range(hover_info.range.start_byte, hover_info.range.end_byte)
                 .ok(),
         })
+    }
+
+    /// Extract documentation comment immediately before a position.
+    fn extract_doc_comment(&self, document: &SourceDocument, start_byte: usize) -> String {
+        let text = document.text();
+        if start_byte == 0 {
+            return String::new();
+        }
+
+        // Look backwards for comment lines
+        let prefix = &text[..start_byte];
+        let mut lines: Vec<&str> = Vec::new();
+
+        for line in prefix.lines().rev() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("//") {
+                // Strip comment prefix and collect
+                let comment_text = trimmed.trim_start_matches('/').trim();
+                lines.push(comment_text);
+            } else if trimmed.is_empty() {
+                // Skip blank lines between comment and definition
+                continue;
+            } else {
+                // Hit non-comment, non-blank line
+                break;
+            }
+        }
+
+        if lines.is_empty() {
+            String::new()
+        } else {
+            lines.reverse();
+            format!("\n\n---\n\n{}", lines.join("\n"))
+        }
     }
 
     pub fn completion(&self, _params: CompletionParams) -> CompletionResponse {
@@ -758,6 +816,81 @@ mod tests {
     }
 
     #[test]
+    fn hover_returns_none_on_whitespace() {
+        let uri = uri("hover_whitespace");
+        let mut server = server();
+        open_document(&mut server, &uri, 1, "packet = {\n    field: u8,\n}\n");
+
+        let hover = server.hover(HoverParams {
+            text_document_position_params: lsp_types::TextDocumentPositionParams {
+                text_document: TextDocumentIdentifier { uri },
+                position: Position::new(1, 0),
+            },
+            work_done_progress_params: Default::default(),
+        });
+
+        assert!(hover.is_none());
+    }
+
+    #[test]
+    fn hover_on_shadowed_field_label_uses_field_definition() {
+        let uri = uri("hover_shadowed_field");
+        let mut server = server();
+        open_document(
+            &mut server,
+            &uri,
+            1,
+            "field = u8\npacket = { field: u16, }\n",
+        );
+
+        let hover = server
+            .hover(HoverParams {
+                text_document_position_params: lsp_types::TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri },
+                    position: Position::new(1, 12),
+                },
+                work_done_progress_params: Default::default(),
+            })
+            .expect("hover should exist");
+
+        let HoverContents::Markup(contents) = hover.contents else {
+            panic!("expected markdown hover");
+        };
+        assert!(contents.value.contains("field: u16"));
+        assert!(contents.value.contains("**Wire length:** `2`"));
+        assert!(!contents.value.contains("field = u8"));
+    }
+
+    #[test]
+    fn hover_on_variable_length_format_reports_expression_and_bounds() {
+        let uri = uri("hover_variable_length");
+        let mut server = server();
+        open_document(
+            &mut server,
+            &uri,
+            1,
+            "msg = {\n    @len: u8 | 0..0xf0,\n    payload: [u8; @len],\n}\n",
+        );
+
+        let hover = server
+            .hover(HoverParams {
+                text_document_position_params: lsp_types::TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri },
+                    position: Position::new(0, 1),
+                },
+                work_done_progress_params: Default::default(),
+            })
+            .expect("hover should exist");
+
+        let HoverContents::Markup(contents) = hover.contents else {
+            panic!("expected markdown hover");
+        };
+        assert!(contents.value.contains("**Wire length:** `1 + @len`"));
+        assert!(contents.value.contains("**Min wire length:** `1`"));
+        assert!(contents.value.contains("**Max wire length:** `241`"));
+    }
+
+    #[test]
     fn syntax_errors_flow_into_lsp_diagnostics_and_semantic_tokens() {
         let uri = uri("broken");
         let mut server = server();
@@ -891,6 +1024,37 @@ Unexpected end of file @ 1:13-1:13"#]]
         assert_eq!(location.uri, uri);
         assert_eq!(location.range.start.line, 0);
         assert_eq!(location.range.start.character, 4);
+    }
+
+    #[test]
+    fn goto_definition_resolves_parameter_type_reference() {
+        let uri = uri("goto_param_type");
+        let mut server = server();
+        open_document(
+            &mut server,
+            &uri,
+            1,
+            "next_payload_type = enum { NONE = 0, }\nikev2_payload(@next_pt: next_payload_type) = u8\n",
+        );
+
+        let definition = server
+            .goto_definition(GotoDefinitionParams {
+                text_document_position_params: lsp_types::TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri: uri.clone() },
+                    position: Position::new(1, 31),
+                },
+                work_done_progress_params: Default::default(),
+                partial_result_params: Default::default(),
+            })
+            .expect("definition should exist");
+
+        let GotoDefinitionResponse::Scalar(location) = definition else {
+            panic!("expected scalar location");
+        };
+
+        assert_eq!(location.uri, uri);
+        assert_eq!(location.range.start.line, 0);
+        assert_eq!(location.range.start.character, 0);
     }
 
     #[test]

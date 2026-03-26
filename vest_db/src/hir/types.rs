@@ -162,7 +162,7 @@ impl<'db> SymbolId<'db> {
         }
     }
 
-    pub fn normalize_rename_input<'a>(self, new_name: &'a str) -> &'a str {
+    pub fn normalize_rename_input(self, new_name: &str) -> &str {
         if self.is_sigiled() {
             new_name.strip_prefix('@').unwrap_or(new_name)
         } else {
@@ -190,6 +190,12 @@ pub struct SymbolOccurrence<'db> {
     pub symbol: SymbolId<'db>,
     pub span: Span,
     pub kind: SymbolOccurrenceKind,
+}
+
+impl SymbolOccurrence<'_> {
+    pub fn span_len(&self) -> usize {
+        self.span.end_byte.saturating_sub(self.span.start_byte)
+    }
 }
 
 /// The kind of a top-level definition.
@@ -357,6 +363,7 @@ pub struct Field<'db> {
     pub ty: Combinator<'db>,
     pub const_value: Option<ConstValue<'db>>,
     pub span: Span,
+    pub full_span: Span,
 }
 
 /// A choice combinator with pattern matching arms.
@@ -479,6 +486,7 @@ pub struct EnumVariant<'db> {
     pub value: ConstValue<'db>,
     pub repr_type: Option<IntType>,
     pub span: Span,
+    pub full_span: Span,
 }
 
 /// Parameter definition for combinators.
@@ -487,6 +495,7 @@ pub struct Param<'db> {
     pub name: Name<'db>,
     pub ty: Combinator<'db>,
     pub span: Span,
+    pub full_span: Span,
 }
 
 /// Constant value (integer or string).

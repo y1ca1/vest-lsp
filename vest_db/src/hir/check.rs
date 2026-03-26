@@ -204,6 +204,10 @@ pub enum CheckDiagnosticKind<'db> {
     BindSourceNotRaw,
     ConstraintOnNonEnum,
     InvalidIntConstraint,
+    /// Cyclic definition detected (A depends on B which depends on A)
+    CyclicDefinition(Name<'db>),
+    /// Choice with non-label patterns requires a discriminant
+    ChoiceMissingDiscriminant,
 }
 
 /// Local context for type checking (Δ in typing rules).
@@ -281,7 +285,37 @@ impl<'db> CheckContext<'db> {
     }
 
     fn ensure_signature(&mut self, name: Name<'db>) {
-        if self.signature.entries.contains_key(&name) || self.in_progress.contains(&name) {
+        if self.signature.entries.contains_key(&name) {
+            return;
+        }
+
+        // Cycle detected: name is already being processed
+        if self.in_progress.contains(&name) {
+            if let Some(def) = self.definitions.get(&name) {
+                self.emit(
+                    CheckDiagnosticKind::CyclicDefinition(name),
+                    format!(
+                        "cyclic definition detected: '{}' depends on itself",
+                        name.text(self.db)
+                    ),
+                    def.span,
+                );
+            }
+            // Insert Error entry to prevent cascading errors
+            let params = match self.definitions.get(&name).map(|def| &def.kind) {
+                Some(DefinitionKind::Combinator { params, .. }) => params
+                    .iter()
+                    .map(|param| (param.name, HostType::Error))
+                    .collect(),
+                _ => Vec::new(),
+            };
+            self.signature.entries.insert(
+                name,
+                SignatureEntry::Format {
+                    params,
+                    result: HostType::Error,
+                },
+            );
             return;
         }
 
@@ -867,6 +901,10 @@ impl<'db> CheckContext<'db> {
         if let Some(entry) = self.get_signature_entry(name) {
             match entry {
                 SignatureEntry::Format { params, result } => {
+                    if self.in_progress.contains(&name) && matches!(result, HostType::Error) {
+                        return HostType::Error;
+                    }
+
                     // Check argument count
                     if args.len() != params.len() {
                         self.emit(
@@ -965,10 +1003,10 @@ impl<'db> CheckContext<'db> {
             let field_ty = self.infer_combinator_type(&field.ty, &local_ctx);
 
             // If this is a const field, validate the constant value
-            if field.is_const {
-                if let Some(const_val) = &field.const_value {
-                    self.check_const_value(const_val, &field_ty, &field.ty, field.span);
-                }
+            if field.is_const
+                && let Some(const_val) = &field.const_value
+            {
+                self.check_const_value(const_val, &field_ty, &field.ty, field.span);
             }
 
             // If dependent, extend local context
@@ -1130,17 +1168,17 @@ impl<'db> CheckContext<'db> {
                     }
                     // Check values fit u8
                     for val in values {
-                        if let ConstValue::Int(v) = val {
-                            if *v > u8::MAX as u64 {
-                                self.emit(
-                                    CheckDiagnosticKind::ConstValueOutOfRange {
-                                        value: *v,
-                                        int_type: IntType::U8,
-                                    },
-                                    format!("value {} out of range for u8", v),
-                                    arm.span,
-                                );
-                            }
+                        if let ConstValue::Int(v) = val
+                            && *v > u8::MAX as u64
+                        {
+                            self.emit(
+                                CheckDiagnosticKind::ConstValueOutOfRange {
+                                    value: *v,
+                                    int_type: IntType::U8,
+                                },
+                                format!("value {} out of range for u8", v),
+                                arm.span,
+                            );
                         }
                     }
 
@@ -1167,6 +1205,17 @@ impl<'db> CheckContext<'db> {
                             label_ref.span,
                         );
                     }
+                }
+                (ChoicePattern::Constraint(_), DiscriminantClass::None)
+                | (ChoicePattern::Array(_), DiscriminantClass::None)
+                    if choice_comb.discriminant.is_none() =>
+                {
+                    // Non-label patterns require a discriminant
+                    self.emit(
+                        CheckDiagnosticKind::ChoiceMissingDiscriminant,
+                        "integer or byte-array patterns require a discriminant binding".to_string(),
+                        arm.span,
+                    );
                 }
                 _ => {
                     // Pattern/discriminant mismatch
@@ -1285,23 +1334,23 @@ impl<'db> CheckContext<'db> {
                     return;
                 }
 
-                if let Some(s) = start_val {
-                    if !self.value_fits_type(s, int_type) {
-                        self.emit(
-                            CheckDiagnosticKind::IntLiteralOutOfRange { value: s, int_type },
-                            format!("range start {} out of range for {:?}", s, int_type),
-                            *span,
-                        );
-                    }
+                if let Some(s) = start_val
+                    && !self.value_fits_type(s, int_type)
+                {
+                    self.emit(
+                        CheckDiagnosticKind::IntLiteralOutOfRange { value: s, int_type },
+                        format!("range start {} out of range for {:?}", s, int_type),
+                        *span,
+                    );
                 }
-                if let Some(e) = end_val {
-                    if !self.value_fits_type(e, int_type) {
-                        self.emit(
-                            CheckDiagnosticKind::IntLiteralOutOfRange { value: e, int_type },
-                            format!("range end {} out of range for {:?}", e, int_type),
-                            *span,
-                        );
-                    }
+                if let Some(e) = end_val
+                    && !self.value_fits_type(e, int_type)
+                {
+                    self.emit(
+                        CheckDiagnosticKind::IntLiteralOutOfRange { value: e, int_type },
+                        format!("range end {} out of range for {:?}", e, int_type),
+                        *span,
+                    );
                 }
 
                 if let (Some(s), Some(e)) = (start_val, end_val)
@@ -1415,29 +1464,26 @@ impl<'db> CheckContext<'db> {
                         continue;
                     }
 
-                    if let Some(s) = start_val {
-                        if !self.value_fits_type(s, int_type) {
-                            self.emit(
-                                CheckDiagnosticKind::IntLiteralOutOfRange { value: s, int_type },
-                                format!(
-                                    "constraint range start {} out of range for {:?}",
-                                    s, int_type
-                                ),
-                                *span,
-                            );
-                        }
+                    if let Some(s) = start_val
+                        && !self.value_fits_type(s, int_type)
+                    {
+                        self.emit(
+                            CheckDiagnosticKind::IntLiteralOutOfRange { value: s, int_type },
+                            format!(
+                                "constraint range start {} out of range for {:?}",
+                                s, int_type
+                            ),
+                            *span,
+                        );
                     }
-                    if let Some(e) = end_val {
-                        if !self.value_fits_type(e, int_type) {
-                            self.emit(
-                                CheckDiagnosticKind::IntLiteralOutOfRange { value: e, int_type },
-                                format!(
-                                    "constraint range end {} out of range for {:?}",
-                                    e, int_type
-                                ),
-                                *span,
-                            );
-                        }
+                    if let Some(e) = end_val
+                        && !self.value_fits_type(e, int_type)
+                    {
+                        self.emit(
+                            CheckDiagnosticKind::IntLiteralOutOfRange { value: e, int_type },
+                            format!("constraint range end {} out of range for {:?}", e, int_type),
+                            *span,
+                        );
                     }
                     if let (Some(s), Some(e)) = (start_val, end_val)
                         && s > e
@@ -2319,5 +2365,91 @@ fmt(@tag: u32) = choose(@tag) {
             failures.join(", ")
         );
         assert!(checked > 0, "expected at least one bad corpus file");
+    }
+
+    #[test]
+    fn test_cyclic_definition_reports_diagnostic() {
+        // A directly references B, B references A
+        let source = r#"
+A = B
+B = A
+"#;
+        let count = count_diagnostics(source, |k| {
+            matches!(k, CheckDiagnosticKind::CyclicDefinition(_))
+        });
+        assert!(
+            count > 0,
+            "expected CyclicDefinition diagnostic for mutual recursion"
+        );
+    }
+
+    #[test]
+    fn test_cyclic_definition_placeholder_preserves_parameter_arity() {
+        let source = r#"
+A(@x: u8) = B(@x)
+B(@y: u8) = A(@y)
+"#;
+
+        let arity_mismatch_count = count_diagnostics(source, |k| {
+            matches!(k, CheckDiagnosticKind::InvocationArgCountMismatch { .. })
+        });
+        let type_mismatch_count = count_diagnostics(source, |k| {
+            matches!(k, CheckDiagnosticKind::InvocationArgTypeMismatch { .. })
+        });
+        let cycle_count = count_diagnostics(source, |k| {
+            matches!(k, CheckDiagnosticKind::CyclicDefinition(_))
+        });
+
+        assert_eq!(
+            arity_mismatch_count, 0,
+            "cycle placeholder should not lose arity"
+        );
+        assert_eq!(
+            type_mismatch_count, 0,
+            "cycle placeholder should not emit bogus type mismatches"
+        );
+        assert!(cycle_count > 0, "expected CyclicDefinition diagnostic");
+    }
+
+    #[test]
+    fn test_choice_missing_discriminant_reports_diagnostic() {
+        // Integer pattern without discriminant
+        let source = r#"
+fmt = choose {
+    42 => u8,
+}
+"#;
+        let count = count_diagnostics(source, |k| {
+            matches!(k, CheckDiagnosticKind::ChoiceMissingDiscriminant)
+        });
+        assert!(count > 0, "expected ChoiceMissingDiscriminant diagnostic");
+    }
+
+    #[test]
+    fn test_invalid_discriminant_does_not_emit_missing_discriminant() {
+        let source = r#"
+fmt(@tag: [u16; 2]) = choose(@tag) {
+    [1, 2] => u8,
+}
+"#;
+
+        let missing_count = count_diagnostics(source, |k| {
+            matches!(k, CheckDiagnosticKind::ChoiceMissingDiscriminant)
+        });
+        let type_mismatch_count = count_diagnostics(source, |k| {
+            matches!(
+                k,
+                CheckDiagnosticKind::ChoiceDiscriminantTypeMismatch { .. }
+            )
+        });
+
+        assert_eq!(
+            missing_count, 0,
+            "provided discriminants should not emit missing-discriminant"
+        );
+        assert!(
+            type_mismatch_count > 0,
+            "expected discriminant type mismatch diagnostic"
+        );
     }
 }

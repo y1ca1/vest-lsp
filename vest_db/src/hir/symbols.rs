@@ -1,9 +1,13 @@
 //! Symbol table and resolution queries.
 
+use std::collections::HashMap;
+
 use crate::hir::types::*;
 use crate::{Db, SourceFile};
 
 use super::lower::lower_to_hir;
+
+type DefinitionLookup<'db, 'hir> = HashMap<Name<'db>, &'hir Definition<'db>>;
 
 /// Resolve a symbol by name within a file.
 ///
@@ -131,8 +135,17 @@ pub fn symbol_at_offset<'db>(
     source: SourceFile,
     byte_offset: usize,
 ) -> Option<SymbolId<'db>> {
+    symbol_occurrence_at_offset(db, source, byte_offset).map(|occurrence| occurrence.symbol)
+}
+
+/// Resolve the symbol occurrence under a byte offset.
+pub fn symbol_occurrence_at_offset<'db>(
+    db: &'db dyn Db,
+    source: SourceFile,
+    byte_offset: usize,
+) -> Option<SymbolOccurrence<'db>> {
     let hir = lower_to_hir(db, source);
-    symbol_at_offset_in_hir(&hir, byte_offset)
+    symbol_occurrence_at_offset_in_hir(&hir, byte_offset)
 }
 
 /// Resolve the symbol occurrence under a byte offset from existing HIR.
@@ -140,10 +153,18 @@ pub fn symbol_at_offset_in_hir<'db>(
     hir: &FileHir<'db>,
     byte_offset: usize,
 ) -> Option<SymbolId<'db>> {
-    collect_symbol_occurrences(hir)
+    symbol_occurrence_at_offset_in_hir(hir, byte_offset).map(|occurrence| occurrence.symbol)
+}
+
+/// Resolve the symbol occurrence under a byte offset from existing HIR.
+pub fn symbol_occurrence_at_offset_in_hir<'db>(
+    hir: &FileHir<'db>,
+    byte_offset: usize,
+) -> Option<SymbolOccurrence<'db>> {
+    collect_symbol_occurrences_in_hir(hir)
         .into_iter()
-        .find(|occurrence| occurrence.span.contains(byte_offset))
-        .map(|occurrence| occurrence.symbol)
+        .filter(|occurrence| occurrence.span.contains(byte_offset))
+        .min_by_key(SymbolOccurrence::span_len)
 }
 
 /// Collect all references for a symbol within a file.
@@ -163,7 +184,7 @@ pub fn references_for_symbol_in_hir<'db>(
     symbol: SymbolId<'db>,
     include_declaration: bool,
 ) -> Vec<SymbolOccurrence<'db>> {
-    collect_symbol_occurrences(hir)
+    collect_symbol_occurrences_in_hir(hir)
         .into_iter()
         .filter(|occurrence| occurrence.symbol == symbol)
         .filter(|occurrence| {
@@ -260,16 +281,31 @@ struct LocalBinding<'db> {
     enum_ty: Option<Name<'db>>,
 }
 
-fn collect_symbol_occurrences<'db>(hir: &FileHir<'db>) -> Vec<SymbolOccurrence<'db>> {
+fn definition_lookup<'db, 'hir>(hir: &'hir FileHir<'db>) -> DefinitionLookup<'db, 'hir> {
+    hir.definitions
+        .iter()
+        .map(|definition| (definition.name, definition))
+        .collect()
+}
+
+fn definition_by_name<'db, 'hir>(
+    definitions: &DefinitionLookup<'db, 'hir>,
+    name: Name<'db>,
+) -> Option<&'hir Definition<'db>> {
+    definitions.get(&name).copied()
+}
+
+fn collect_symbol_occurrences_in_hir<'db>(hir: &FileHir<'db>) -> Vec<SymbolOccurrence<'db>> {
+    let definitions = definition_lookup(hir);
     let mut occurrences = Vec::new();
     for definition in &hir.definitions {
-        collect_definition_occurrences(hir, definition, &mut occurrences);
+        collect_definition_occurrences(&definitions, definition, &mut occurrences);
     }
     occurrences
 }
 
 fn collect_definition_occurrences<'db>(
-    hir: &FileHir<'db>,
+    definitions: &DefinitionLookup<'db, '_>,
     definition: &Definition<'db>,
     occurrences: &mut Vec<SymbolOccurrence<'db>>,
 ) {
@@ -285,6 +321,13 @@ fn collect_definition_occurrences<'db>(
         DefinitionKind::Combinator { params, body } => {
             let mut visible = Vec::new();
             for param in params {
+                collect_combinator_occurrences(
+                    definitions,
+                    definition.name,
+                    &param.ty,
+                    &mut visible,
+                    occurrences,
+                );
                 let symbol = SymbolId::Param {
                     owner: definition.name,
                     name: param.name,
@@ -298,10 +341,16 @@ fn collect_definition_occurrences<'db>(
                 );
                 visible.push(LocalBinding {
                     symbol,
-                    enum_ty: enum_type_for_combinator(hir, &param.ty),
+                    enum_ty: enum_type_for_combinator(definitions, &param.ty),
                 });
             }
-            collect_combinator_occurrences(hir, definition.name, body, &mut visible, occurrences);
+            collect_combinator_occurrences(
+                definitions,
+                definition.name,
+                body,
+                &mut visible,
+                occurrences,
+            );
         }
         DefinitionKind::Enum(enum_def) => {
             for variant in &enum_def.variants {
@@ -320,11 +369,17 @@ fn collect_definition_occurrences<'db>(
         }
         DefinitionKind::Const { ty, value } => {
             let mut visible = Vec::new();
-            collect_combinator_occurrences(hir, definition.name, ty, &mut visible, occurrences);
+            collect_combinator_occurrences(
+                definitions,
+                definition.name,
+                ty,
+                &mut visible,
+                occurrences,
+            );
             collect_const_value_occurrences(
-                hir,
+                definitions,
                 Some(value),
-                enum_type_for_combinator(hir, ty),
+                enum_type_for_combinator(definitions, ty),
                 occurrences,
             );
         }
@@ -333,7 +388,7 @@ fn collect_definition_occurrences<'db>(
 }
 
 fn collect_combinator_occurrences<'db>(
-    hir: &FileHir<'db>,
+    definitions: &DefinitionLookup<'db, '_>,
     owner: Name<'db>,
     combinator: &Combinator<'db>,
     visible: &mut Vec<LocalBinding<'db>>,
@@ -350,7 +405,7 @@ fn collect_combinator_occurrences<'db>(
                     *span,
                     SymbolOccurrenceKind::Reference,
                 );
-            } else if let Some(definition) = resolve_symbol_in_hir(hir, *name) {
+            } else if let Some(definition) = definition_by_name(definitions, *name) {
                 push_occurrence(
                     occurrences,
                     definition.symbol_id(),
@@ -376,7 +431,7 @@ fn collect_combinator_occurrences<'db>(
             span,
             ..
         } => {
-            let enum_ty = resolve_symbol_in_hir(hir, *name).and_then(|definition| {
+            let enum_ty = definition_by_name(definitions, *name).and_then(|definition| {
                 push_occurrence(
                     occurrences,
                     definition.symbol_id(),
@@ -388,7 +443,9 @@ fn collect_combinator_occurrences<'db>(
 
             if let Some(enum_ty) = enum_ty {
                 for variant in constraint {
-                    if let Some(symbol) = resolve_enum_variant_symbol(hir, enum_ty, variant.name) {
+                    if let Some(symbol) =
+                        resolve_enum_variant_symbol(definitions, enum_ty, variant.name)
+                    {
                         push_occurrence(
                             occurrences,
                             symbol,
@@ -415,21 +472,21 @@ fn collect_combinator_occurrences<'db>(
                     SymbolOccurrenceKind::Declaration,
                 );
                 collect_combinator_occurrences(
-                    hir,
+                    definitions,
                     owner,
                     &field.ty,
                     &mut local_visible,
                     occurrences,
                 );
                 collect_const_value_occurrences(
-                    hir,
+                    definitions,
                     field.const_value.as_ref(),
-                    enum_type_for_combinator(hir, &field.ty),
+                    enum_type_for_combinator(definitions, &field.ty),
                     occurrences,
                 );
                 local_visible.push(LocalBinding {
                     symbol,
-                    enum_ty: enum_type_for_combinator(hir, &field.ty),
+                    enum_ty: enum_type_for_combinator(definitions, &field.ty),
                 });
             }
         }
@@ -448,7 +505,8 @@ fn collect_combinator_occurrences<'db>(
             for arm in &choice.arms {
                 if let (ChoicePattern::Variant(variant), Some(enum_ty)) =
                     (&arm.pattern, discriminant_enum)
-                    && let Some(symbol) = resolve_enum_variant_symbol(hir, enum_ty, variant.name)
+                    && let Some(symbol) =
+                        resolve_enum_variant_symbol(definitions, enum_ty, variant.name)
                 {
                     push_occurrence(
                         occurrences,
@@ -457,25 +515,43 @@ fn collect_combinator_occurrences<'db>(
                         SymbolOccurrenceKind::Reference,
                     );
                 }
-                collect_combinator_occurrences(hir, owner, &arm.body, visible, occurrences);
+                collect_combinator_occurrences(definitions, owner, &arm.body, visible, occurrences);
             }
         }
         Combinator::Array(array) => {
-            collect_combinator_occurrences(hir, owner, &array.element, visible, occurrences);
-            collect_length_occurrences(hir, &array.length, visible, occurrences);
+            collect_combinator_occurrences(
+                definitions,
+                owner,
+                &array.element,
+                visible,
+                occurrences,
+            );
+            collect_length_occurrences(definitions, &array.length, visible, occurrences);
         }
         Combinator::Vec(vector) => {
-            collect_combinator_occurrences(hir, owner, &vector.element, visible, occurrences);
+            collect_combinator_occurrences(
+                definitions,
+                owner,
+                &vector.element,
+                visible,
+                occurrences,
+            );
         }
         Combinator::Option(option) => {
-            collect_combinator_occurrences(hir, owner, &option.element, visible, occurrences);
+            collect_combinator_occurrences(
+                definitions,
+                owner,
+                &option.element,
+                visible,
+                occurrences,
+            );
         }
         Combinator::Wrap(wrap) => {
             for arg in &wrap.args {
                 match arg {
                     WrapArg::Combinator(combinator) => {
                         collect_combinator_occurrences(
-                            hir,
+                            definitions,
                             owner,
                             combinator,
                             visible,
@@ -483,7 +559,7 @@ fn collect_combinator_occurrences<'db>(
                         );
                     }
                     WrapArg::ConstEnum { ty, variant } => {
-                        if let Some(definition) = resolve_symbol_in_hir(hir, ty.name) {
+                        if let Some(definition) = definition_by_name(definitions, ty.name) {
                             push_occurrence(
                                 occurrences,
                                 definition.symbol_id(),
@@ -491,8 +567,11 @@ fn collect_combinator_occurrences<'db>(
                                 SymbolOccurrenceKind::Reference,
                             );
                             if matches!(definition.kind, DefinitionKind::Enum(_))
-                                && let Some(symbol) =
-                                    resolve_enum_variant_symbol(hir, definition.name, variant.name)
+                                && let Some(symbol) = resolve_enum_variant_symbol(
+                                    definitions,
+                                    definition.name,
+                                    variant.name,
+                                )
                             {
                                 push_occurrence(
                                     occurrences,
@@ -508,8 +587,8 @@ fn collect_combinator_occurrences<'db>(
             }
         }
         Combinator::Bind { inner, target, .. } => {
-            collect_combinator_occurrences(hir, owner, inner, visible, occurrences);
-            collect_combinator_occurrences(hir, owner, target, visible, occurrences);
+            collect_combinator_occurrences(definitions, owner, inner, visible, occurrences);
+            collect_combinator_occurrences(definitions, owner, target, visible, occurrences);
         }
         Combinator::ConstrainedInt { .. }
         | Combinator::Int(_)
@@ -519,7 +598,7 @@ fn collect_combinator_occurrences<'db>(
 }
 
 fn collect_length_occurrences<'db>(
-    hir: &FileHir<'db>,
+    definitions: &DefinitionLookup<'db, '_>,
     expr: &LengthExpr<'db>,
     visible: &[LocalBinding<'db>],
     occurrences: &mut Vec<SymbolOccurrence<'db>>,
@@ -548,7 +627,7 @@ fn collect_length_occurrences<'db>(
                     }
                 }
                 LengthAtom::SizeOf(SizeTarget::Named(name)) => {
-                    if let Some(definition) = resolve_symbol_in_hir(hir, name.name) {
+                    if let Some(definition) = definition_by_name(definitions, name.name) {
                         push_occurrence(
                             occurrences,
                             definition.symbol_id(),
@@ -558,7 +637,7 @@ fn collect_length_occurrences<'db>(
                     }
                 }
                 LengthAtom::Paren(inner) => {
-                    collect_length_occurrences(hir, inner, visible, occurrences);
+                    collect_length_occurrences(definitions, inner, visible, occurrences);
                 }
                 LengthAtom::Const(_) | LengthAtom::SizeOf(SizeTarget::Type(_)) => {}
             }
@@ -567,13 +646,13 @@ fn collect_length_occurrences<'db>(
 }
 
 fn collect_const_value_occurrences<'db>(
-    hir: &FileHir<'db>,
+    definitions: &DefinitionLookup<'db, '_>,
     value: Option<&ConstValue<'db>>,
     enum_ty: Option<Name<'db>>,
     occurrences: &mut Vec<SymbolOccurrence<'db>>,
 ) {
     if let (Some(ConstValue::String(variant)), Some(enum_ty)) = (value, enum_ty)
-        && let Some(symbol) = resolve_enum_variant_symbol(hir, enum_ty, variant.name)
+        && let Some(symbol) = resolve_enum_variant_symbol(definitions, enum_ty, variant.name)
     {
         push_occurrence(
             occurrences,
@@ -596,12 +675,12 @@ fn resolve_local_binding<'db>(
 }
 
 fn resolve_enum_variant_symbol<'db>(
-    hir: &FileHir<'db>,
+    definitions: &DefinitionLookup<'db, '_>,
     enum_name: Name<'db>,
     variant_name: Name<'db>,
 ) -> Option<SymbolId<'db>> {
-    let definition = resolve_symbol_in_hir(hir, enum_name)?;
-    let DefinitionKind::Enum(enum_def) = definition.kind else {
+    let definition = definition_by_name(definitions, enum_name)?;
+    let DefinitionKind::Enum(ref enum_def) = definition.kind else {
         return None;
     };
     enum_def
@@ -616,7 +695,7 @@ fn resolve_enum_variant_symbol<'db>(
 }
 
 fn enum_type_for_combinator<'db>(
-    hir: &FileHir<'db>,
+    definitions: &DefinitionLookup<'db, '_>,
     combinator: &Combinator<'db>,
 ) -> Option<Name<'db>> {
     let name = match combinator {
@@ -624,7 +703,7 @@ fn enum_type_for_combinator<'db>(
         _ => return None,
     };
 
-    resolve_symbol_in_hir(hir, name)
+    definition_by_name(definitions, name)
         .filter(|definition| matches!(definition.kind, DefinitionKind::Enum(_)))
         .map(|definition| definition.name)
 }
@@ -764,6 +843,24 @@ mod tests {
         assert_eq!(
             render_occurrences(&occurrences),
             "declaration@0..5\nreference@29..34\nreference@42..47"
+        );
+    }
+
+    #[test]
+    fn symbol_at_offset_resolves_parameter_type_reference() {
+        let (db, file) = setup(
+            "next_payload_type = enum { NONE = 0, }\nikev2_payload(@next_pt: next_payload_type) = u8\n",
+        );
+        let hir = lower_to_hir(&db, file);
+
+        let symbol = symbol_at_offset_in_hir(&hir, 67).unwrap();
+
+        assert!(
+            symbol
+                == SymbolId::TopLevel {
+                    name: Name::new(&db, "next_payload_type"),
+                    declaration: Span::new(0, 17),
+                }
         );
     }
 

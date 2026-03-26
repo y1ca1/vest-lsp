@@ -65,11 +65,12 @@ Milestone 5 – Basic Formatting
 	•	Formatter tests: provide test cases that take unformatted .vest inputs and verify that format_file returns the expected edits. Use expect-test to snapshot the formatted output or compare against fixture strings.
 
 Milestone 6 – Hover Information & Wire Lengths
-	•	Develop a query compute_wire_length(format_id) that returns either an exact bit length, a range, or an algebraic expression.  Initially, handle primitive types (u8, u16, etc.) and fixed‑length arrays.  Later expand to dependent lengths and choice expressions.
+	•	Develop a query compute_wire_length(format_id) that returns either an exact byte length, or a range (with an algebraic expression involving dependent variables).  Handle all possible formats including primitive ones (u8, u16, fixed‑length arrays, etc.), as well as composed formats like struct with dependent fields, repetitions, and choices.
 	•	Provide a hover_info(node_id) query that assembles:
-	•	The raw declaration of the format or field.
-	•	Wire‑length information (e.g., “exactly 16 bits” or “range 32–256 bytes”).
-	•	Any comments immediately above the declaration.
+  	•	The definition of the format/the format of a field/the definition of the enum discriminant/the constant value for a const field or const format/etc.
+  	•	Wire‑length information (e.g., `wire length = 2` for a `u16`, `wire length = N` for `[u8; N]`, `wire length = 40` for `msg = { header: [u8; 16], body: [u8; 24] }`, `min wire length = 1, max wire length = 241` for `msg = { @len: u8 | 0..0xf0, payload: [u8; @len] }`, etc.).
+  	•	Any comments immediately above the declaration.
+    •	Don't show anything if hovering over comments or whitespace.
 	•	In the LSP hover handler, call hover_info and format the result as Markdown.
 	•	Hover tests: create unit tests for compute_wire_length and hover_info using a range of formats (primitives, arrays, choices). Assert that the returned size expressions and Markdown strings match expectations. Use Zed’s hover tooltips to manually verify that the server returns useful hover information.
 

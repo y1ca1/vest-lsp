@@ -283,6 +283,7 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
         let mut name = None;
         let mut span = None;
         let mut ty = None;
+        let full_span = Span::from_node(&node);
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -301,7 +302,12 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
         }
 
         match (name, span, ty) {
-            (Some(name), Some(span), Some(ty)) => Some(Param { name, ty, span }),
+            (Some(name), Some(span), Some(ty)) => Some(Param {
+                name,
+                ty,
+                span,
+                full_span,
+            }),
             _ => None,
         }
     }
@@ -638,6 +644,7 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
         let mut span = None;
         let mut ty = None;
         let mut const_value = None;
+        let full_span = Span::from_node(&node);
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -674,6 +681,7 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
                 ty,
                 const_value,
                 span,
+                full_span,
             }),
             _ => None,
         }
@@ -1345,6 +1353,7 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
                     ty: Combinator::Int(enum_def.repr_type.unwrap_or(IntType::U8)),
                     const_value: Some(v.value),
                     span: v.span,
+                    full_span: v.full_span,
                 })
                 .collect(),
         })
@@ -1429,6 +1438,7 @@ impl<'db, 'src> LoweringContext<'db, 'src> {
                     value,
                     repr_type,
                     span,
+                    full_span: Span::from_node(&node),
                 },
                 repr_type,
             )),
@@ -1513,6 +1523,22 @@ mod tests {
         let fresh = lower_to_hir(&db, file);
 
         assert!(incremental == fresh);
+    }
+
+    #[test]
+    fn lower_to_hir_query_tracks_source_updates() {
+        let mut db = Database::new();
+        let file = SourceFile::new(&db, "test.vest".to_string(), 1, "packet = u8\n".to_string());
+
+        let initial = lower_to_hir(&db, file);
+        assert_eq!(initial.definitions.len(), 1);
+        assert_eq!(initial.definitions[0].name.as_str(&db), "packet");
+
+        file.set_text(&mut db).to("frame = u16\n".to_string());
+
+        let updated = lower_to_hir(&db, file);
+        assert_eq!(updated.definitions.len(), 1);
+        assert_eq!(updated.definitions[0].name.as_str(&db), "frame");
     }
 
     fn format_definitions<'db>(db: &'db Database, hir: &FileHir<'db>) -> String {
