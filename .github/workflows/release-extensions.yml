@@ -94,14 +94,19 @@ jobs:
       matrix:
         include:
           - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
             artifact_name: vest_lsp-linux-x8664.gz
           - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
             artifact_name: vest_lsp-linux-aarch64.gz
-          - runner: macos-13
+          - runner: macos-14
+            target: x86_64-apple-darwin
             artifact_name: vest_lsp-mac-x8664.gz
           - runner: macos-14
+            target: aarch64-apple-darwin
             artifact_name: vest_lsp-mac-aarch64.gz
           - runner: windows-latest
+            target: x86_64-pc-windows-msvc
             artifact_name: vest_lsp-windows-x8664.gz
     runs-on: ${{ matrix.runner }}
     steps:
@@ -112,9 +117,13 @@ jobs:
           node-version: 20
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
       - name: Build release asset
         shell: bash
+        env:
+          VEST_TARGET_TRIPLE: ${{ matrix.target }}
         run: node extensions/vest-zed/scripts/package-language-server-asset.mjs
 
       - uses: actions/upload-artifact@v4

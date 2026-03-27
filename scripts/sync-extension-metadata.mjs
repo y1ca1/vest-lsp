@@ -132,21 +132,29 @@ function sectionContent(content, sectionName) {
 }
 
 function readTomlScalar(sectionText, key) {
-  const match = sectionText.match(new RegExp(`^${escapeRegExp(key)}\\s*=\\s*"([^"]+)"$`, "m"));
-  if (!match) {
-    throw new Error(`missing \`${key}\``);
+  const pattern = new RegExp(
+    `^${escapeRegExp(key)}\\s*=\\s*"([^"]+)"\\s*(?:#.*)?$`,
+  );
+
+  for (const line of splitLines(sectionText)) {
+    const match = line.match(pattern);
+    if (match) {
+      return match[1];
+    }
   }
-  return match[1];
+
+  throw new Error(`missing \`${key}\``);
 }
 
 function replaceTomlField(content, sectionName, key, value) {
-  const lines = content.split("\n");
+  const lineEnding = detectLineEnding(content);
+  const lines = splitLines(content);
   let currentSection = "";
   let replaced = false;
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
-    const sectionMatch = line.match(/^\[(.+)\]$/);
+    const sectionMatch = line.match(/^\[(.+)\]\s*$/);
     if (sectionMatch) {
       currentSection = sectionMatch[1];
       continue;
@@ -168,7 +176,7 @@ function replaceTomlField(content, sectionName, key, value) {
     throw new Error(`could not find \`${key}\` in ${target}`);
   }
 
-  return lines.join("\n");
+  return lines.join(lineEnding);
 }
 
 function parseTomlSections(content) {
@@ -176,8 +184,8 @@ function parseTomlSections(content) {
   let currentSection = "";
   let currentLines = [];
 
-  for (const line of content.split("\n")) {
-    const sectionMatch = line.match(/^\[(.+)\]$/);
+  for (const line of splitLines(content)) {
+    const sectionMatch = line.match(/^\[(.+)\]\s*$/);
     if (sectionMatch) {
       sections.set(currentSection, currentLines.join("\n"));
       currentSection = sectionMatch[1];
@@ -194,6 +202,14 @@ function parseTomlSections(content) {
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function detectLineEnding(content) {
+  return content.includes("\r\n") ? "\r\n" : "\n";
+}
+
+function splitLines(content) {
+  return content.split(/\r?\n/);
 }
 
 function repositorySlug(repositoryUrl) {
