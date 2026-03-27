@@ -1,7 +1,7 @@
 id = "vest"
 name = "Vest"
 description = "Language support for Vest DSL - a parser and serializer generator for binary data formats"
-version = "0.1.1"
+version = "0.1.2"
 schema_version = 1
 authors = ["Vest Team"]
 repository = "https://github.com/y1ca1/vest-lsp"
