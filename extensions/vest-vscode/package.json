@@ -7,7 +7,15 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/vest-dsl/vest-lsp"
+    "url": "https://github.com/y1ca1/vest-lsp"
+  },
+  "homepage": "https://github.com/y1ca1/vest-lsp",
+  "bugs": {
+    "url": "https://github.com/y1ca1/vest-lsp/issues"
+  },
+  "scripts": {
+    "sync:metadata": "node ../../scripts/sync-extension-metadata.mjs",
+    "package:vsix": "node ./scripts/package-vsix.mjs"
   },
   "engines": {
     "vscode": "^1.109.0"
@@ -22,6 +30,9 @@
     "lsp"
   ],
   "main": "./extension.js",
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
   "extensionKind": [
     "workspace"
   ],
@@ -62,7 +73,7 @@
         "vest.languageServer.path": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Absolute path to the Vest language server binary. When empty, the extension uses its bundled binary and then falls back to `vest_lsp` on `PATH`."
+          "markdownDescription": "Absolute path to the Vest language server binary. When empty, the extension uses its bundled binary, then the cached release-managed binary for this extension version, and finally `vest_lsp` on `PATH`."
         },
         "vest.languageServer.arguments": {
           "type": "array",

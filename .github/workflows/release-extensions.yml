@@ -1,0 +1,174 @@
+name: Release Extensions
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  verify-release:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check synced metadata
+        run: node scripts/sync-extension-metadata.mjs --check
+
+      - id: version
+        name: Read workspace version
+        shell: bash
+        run: |
+          version=$(grep -E '^version = "' Cargo.toml | head -n1 | sed -E 's/version = "([^"]+)"/\1/')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Validate tag matches workspace version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          expected_tag="v${{ steps.version.outputs.version }}"
+          actual_tag="${GITHUB_REF_NAME}"
+          test "$actual_tag" = "$expected_tag"
+
+  build-vscode-vsix:
+    needs: verify-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build universal VSIX
+        env:
+          VEST_SKIP_BUNDLED_SERVER: "1"
+        run: node extensions/vest-vscode/scripts/package-vsix.mjs
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vscode-vsix
+          path: extensions/vest-vscode/dist/*.vsix
+
+  build-zed-extension:
+    needs: verify-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip2
+
+      - name: Build packaged Zed extension
+        run: node extensions/vest-zed/scripts/package-extension.mjs
+
+      - name: Archive Zed extension directory
+        run: |
+          cd extensions/vest-zed/dist
+          tar -czf "vest-zed-${{ needs.verify-release.outputs.version }}.tar.gz" vest-zed
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zed-extension
+          path: |
+            extensions/vest-zed/dist/vest-zed-${{ needs.verify-release.outputs.version }}.tar.gz
+
+  build-language-server-assets:
+    needs: verify-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            artifact_name: vest_lsp-linux-x8664.gz
+          - runner: ubuntu-24.04-arm
+            artifact_name: vest_lsp-linux-aarch64.gz
+          - runner: macos-13
+            artifact_name: vest_lsp-mac-x8664.gz
+          - runner: macos-14
+            artifact_name: vest_lsp-mac-aarch64.gz
+          - runner: windows-latest
+            artifact_name: vest_lsp-windows-x8664.gz
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release asset
+        shell: bash
+        run: node extensions/vest-zed/scripts/package-language-server-asset.mjs
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: extensions/vest-zed/dist/${{ matrix.artifact_name }}
+
+  github-release:
+    needs:
+      - verify-release
+      - build-vscode-vsix
+      - build-zed-extension
+      - build-language-server-assets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.verify-release.outputs.version }}
+          generate_release_notes: true
+          files: |
+            release-artifacts/**/*.vsix
+            release-artifacts/**/*.tar.gz
+            release-artifacts/**/*.gz
+
+  publish-vscode-marketplace:
+    needs:
+      - verify-release
+      - build-vscode-vsix
+      - github-release
+    runs-on: ubuntu-latest
+    env:
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+    steps:
+      - if: env.VSCE_PAT != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: vscode-vsix
+          path: release-artifacts/vscode
+
+      - if: env.VSCE_PAT != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - if: env.VSCE_PAT != ''
+        name: Publish VS Code extension
+        shell: bash
+        run: |
+          npx @vscode/vsce publish --packagePath "$(echo release-artifacts/vscode/*.vsix)"
+
+      - if: env.VSCE_PAT == ''
+        name: Skip VS Code publish
+        run: echo "VSCE_PAT is not configured; skipping VS Code Marketplace publish."

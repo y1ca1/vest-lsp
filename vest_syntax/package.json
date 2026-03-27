@@ -13,7 +13,9 @@
   "tree-sitter": [
     {
       "scope": "source.vest",
-      "file-types": ["vest"],
+      "file-types": [
+        "vest"
+      ],
       "highlights": "queries/highlights.scm"
     }
   ]

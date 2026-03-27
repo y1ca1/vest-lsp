@@ -7,7 +7,7 @@ version = "0.1.0"
 edition = "2024"
 authors = ["Vest Team"]
 license = "MIT"
-repository = "https://github.com/vest-dsl/vest-lsp"
+repository = "https://github.com/y1ca1/vest-lsp"
 
 [workspace.dependencies]
 async-lsp = { version = "0.2.3", features = ["tokio"] }

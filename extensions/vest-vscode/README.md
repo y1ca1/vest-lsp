@@ -12,18 +12,37 @@ This extension adds Vest language support to Visual Studio Code:
 From the repository root:
 
 ```sh
-node extensions/vscode/scripts/package-vsix.mjs
+node extensions/vest-vscode/scripts/package-vsix.mjs
 ```
 
-That builds `vest_lsp`, bundles it into a platform-specific VSIX, and writes the result to `extensions/vscode/dist/`.
+That builds `vest_lsp`, bundles it into a platform-specific VSIX, and writes the result to `extensions/vest-vscode/dist/`.
+
+For release publishing, the workflow builds a universal VSIX instead. Published installs download the matching `vest_lsp` binary from the corresponding GitHub release for this extension version.
 
 ## Installation
 
+### Published Extension
+
+1. Open the Extensions view in VS Code.
+2. Search for `Vest`.
+3. Click Install.
+
+### Local VSIX Install
+
+1. Build the VSIX:
+
 ```sh
-code --install-extension extensions/vscode/dist/vest-0.1.0-darwin-arm64.vsix --force
+node extensions/vest-vscode/scripts/package-vsix.mjs
 ```
 
-Then open any `.vest` file in VS Code.
+2. In VS Code, run `Extensions: Install from VSIX...`.
+3. Select the generated file in `extensions/vest-vscode/dist/`.
+
+CLI alternative:
+
+```sh
+code --install-extension extensions/vest-vscode/dist/vest-<version>-<platform>.vsix --force
+```
 
 ## Configuration
 

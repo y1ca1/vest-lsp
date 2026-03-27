@@ -5,10 +5,18 @@ version = "0.1.0"
 schema_version = 1
 authors = ["Vest Team"]
 repository = "https://github.com/y1ca1/vest-lsp"
+themes = []
+icon_themes = []
+languages = ["languages/vest"]
+capabilities = []
+
+[lib]
+kind = "Rust"
+version = "0.7.0"
 
 [grammars.vest]
 repository = "https://github.com/y1ca1/vest-lsp"
-rev = "4273a4ed2dbc265272639c30ac37ca3f50c20d36"
+rev = "e63d8c56bc86ea004f8ffae05d9fccec99a9e1dd"
 path = "vest_syntax"
 
 [language.vest]

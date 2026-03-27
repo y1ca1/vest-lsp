@@ -1,0 +1,64 @@
+name: Validate Extensions
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/validate-extensions.yml"
+      - "Cargo.toml"
+      - "scripts/sync-extension-metadata.mjs"
+      - "extensions/vest-vscode/**"
+      - "extensions/vest-zed/**"
+      - "vest_syntax/package.json"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/validate-extensions.yml"
+      - "Cargo.toml"
+      - "scripts/sync-extension-metadata.mjs"
+      - "extensions/vest-vscode/**"
+      - "extensions/vest-zed/**"
+      - "vest_syntax/package.json"
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check synced metadata
+        run: node scripts/sync-extension-metadata.mjs --check
+
+  vscode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build universal VSIX
+        env:
+          VEST_SKIP_BUNDLED_SERVER: "1"
+        run: node extensions/vest-vscode/scripts/package-vsix.mjs
+
+  zed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip2
+
+      - name: Build Zed extension package
+        run: node extensions/vest-zed/scripts/package-extension.mjs

@@ -9,22 +9,36 @@ const repoRoot = path.resolve(extensionRoot, "..", "..");
 const buildRoot = path.join(extensionRoot, ".build");
 const stagedExtensionRoot = path.join(buildRoot, "extension");
 const distRoot = path.join(extensionRoot, "dist");
+const syncScript = path.join(repoRoot, "scripts", "sync-extension-metadata.mjs");
+const SOURCE_ENTRIES = [
+  "extension.js",
+  "language-configuration.json",
+  "README.md",
+  "node_modules",
+  "package.json",
+  "syntaxes",
+];
 
 main();
 
 function main() {
+  run(process.execPath, [syncScript], { cwd: repoRoot });
+
   const packageJson = readJson(path.join(extensionRoot, "package.json"));
-  const targetPlatform = detectTargetPlatform();
+  const bundleServer = process.env.VEST_SKIP_BUNDLED_SERVER !== "1";
+  const targetPlatform = bundleServer ? detectTargetPlatform() : "universal";
   const minimumVscodeVersion = packageJson.engines.vscode.replace(/^\^/, "");
 
-  run("cargo", [
-    "build",
-    "--release",
-    "--package",
-    "vest_lsp",
-    "--bin",
-    "vest_lsp",
-  ], { cwd: repoRoot });
+  if (bundleServer) {
+    run("cargo", [
+      "build",
+      "--release",
+      "--package",
+      "vest_lsp",
+      "--bin",
+      "vest_lsp",
+    ], { cwd: repoRoot });
+  }
 
   fs.rmSync(buildRoot, { recursive: true, force: true });
   fs.mkdirSync(stagedExtensionRoot, { recursive: true });
@@ -32,11 +46,13 @@ function main() {
 
   copyExtensionSource(stagedExtensionRoot);
 
-  const bundledBinarySource = path.join(repoRoot, "target", "release", executableName("vest_lsp"));
-  const bundledBinaryTarget = path.join(stagedExtensionRoot, "bin", "vest_lsp.bin");
-  fs.mkdirSync(path.dirname(bundledBinaryTarget), { recursive: true });
-  fs.copyFileSync(bundledBinarySource, bundledBinaryTarget);
-  fs.chmodSync(bundledBinaryTarget, 0o755);
+  if (bundleServer) {
+    const bundledBinarySource = path.join(repoRoot, "target", "release", executableName("vest_lsp"));
+    const bundledBinaryTarget = path.join(stagedExtensionRoot, "bin", "vest_lsp.bin");
+    fs.mkdirSync(path.dirname(bundledBinaryTarget), { recursive: true });
+    fs.copyFileSync(bundledBinarySource, bundledBinaryTarget);
+    fs.chmodSync(bundledBinaryTarget, 0o755);
+  }
 
   const licenseSource = path.join(repoRoot, "LICENSE");
   if (fs.existsSync(licenseSource)) {
@@ -54,7 +70,9 @@ function main() {
     "utf8",
   );
 
-  const vsixBasename = `${packageJson.name}-${packageJson.version}-${targetPlatform}.vsix`;
+  const vsixBasename = targetPlatform === "universal"
+    ? `${packageJson.name}-${packageJson.version}.vsix`
+    : `${packageJson.name}-${packageJson.version}-${targetPlatform}.vsix`;
   const vsixPath = path.join(distRoot, vsixBasename);
   fs.rmSync(vsixPath, { force: true });
 
@@ -72,13 +90,9 @@ function readJson(filePath) {
 }
 
 function copyExtensionSource(destinationRoot) {
-  for (const entry of fs.readdirSync(extensionRoot, { withFileTypes: true })) {
-    if (entry.name === ".build" || entry.name === "dist" || entry.name === "scripts") {
-      continue;
-    }
-
-    const sourcePath = path.join(extensionRoot, entry.name);
-    const destinationPath = path.join(destinationRoot, entry.name);
+  for (const entryName of SOURCE_ENTRIES) {
+    const sourcePath = path.join(extensionRoot, entryName);
+    const destinationPath = path.join(destinationRoot, entryName);
     fs.cpSync(sourcePath, destinationPath, { recursive: true });
   }
 }
