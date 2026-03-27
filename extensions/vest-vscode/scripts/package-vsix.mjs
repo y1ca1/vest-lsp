@@ -27,7 +27,7 @@ function main() {
   const packageJson = readJson(path.join(extensionRoot, "package.json"));
   const bundleServer = process.env.VEST_SKIP_BUNDLED_SERVER !== "1";
   const targetPlatform = bundleServer ? detectTargetPlatform() : "universal";
-  const minimumVscodeVersion = packageJson.engines.vscode.replace(/^\^/, "");
+  const hasLicense = fs.existsSync(path.join(repoRoot, "LICENSE"));
 
   if (bundleServer) {
     run("cargo", [
@@ -66,7 +66,7 @@ function main() {
   );
   fs.writeFileSync(
     path.join(buildRoot, "extension.vsixmanifest"),
-    renderVsixManifest(packageJson, minimumVscodeVersion, targetPlatform),
+    renderVsixManifest(packageJson, targetPlatform, hasLicense),
     "utf8",
   );
 
@@ -112,38 +112,78 @@ function renderContentTypes() {
 `;
 }
 
-function renderVsixManifest(packageJson, minimumVscodeVersion, targetPlatform) {
-  const extensionId = `${packageJson.publisher}.${packageJson.name}`;
+function renderVsixManifest(packageJson, targetPlatform, hasLicense) {
+  const properties = [
+    propertyXml("Microsoft.VisualStudio.Code.Engine", packageJson.engines.vscode),
+    propertyXml("Microsoft.VisualStudio.Code.ExtensionDependencies", ""),
+    propertyXml("Microsoft.VisualStudio.Code.ExtensionPack", ""),
+    propertyXml("Microsoft.VisualStudio.Code.ExtensionKind", "workspace"),
+    propertyXml("Microsoft.VisualStudio.Code.LocalizedLanguages", ""),
+    propertyXml("Microsoft.VisualStudio.Code.EnabledApiProposals", ""),
+    propertyXml("Microsoft.VisualStudio.Code.ExecutesCode", "true"),
+  ];
+
+  if (targetPlatform !== "universal") {
+    properties.splice(1, 0, propertyXml("Microsoft.VisualStudio.Code.TargetPlatform", targetPlatform));
+  }
+
+  const sourceUrl = packageJson.repository?.url;
+  if (sourceUrl) {
+    properties.push(propertyXml("Microsoft.VisualStudio.Services.Links.Source", sourceUrl));
+    properties.push(propertyXml("Microsoft.VisualStudio.Services.Links.Getstarted", sourceUrl));
+    properties.push(propertyXml("Microsoft.VisualStudio.Services.Links.GitHub", sourceUrl));
+  }
+
+  if (packageJson.bugs?.url) {
+    properties.push(propertyXml("Microsoft.VisualStudio.Services.Links.Support", packageJson.bugs.url));
+  }
+
+  if (packageJson.homepage) {
+    properties.push(propertyXml("Microsoft.VisualStudio.Services.Links.Learn", packageJson.homepage));
+  }
+
+  properties.push(propertyXml("Microsoft.VisualStudio.Services.GitHubFlavoredMarkdown", "true"));
+  properties.push(propertyXml("Microsoft.VisualStudio.Services.Content.Pricing", "Free"));
+
+  const assets = [
+    '<Asset Type="Microsoft.VisualStudio.Code.Manifest" Path="extension/package.json" Addressable="true" />',
+    '<Asset Type="Microsoft.VisualStudio.Services.Content.Details" Path="extension/README.md" Addressable="true" />',
+  ];
+
+  if (hasLicense) {
+    assets.push('<Asset Type="Microsoft.VisualStudio.Services.Content.License" Path="extension/LICENSE" Addressable="true" />');
+  }
 
   return `<?xml version="1.0" encoding="utf-8"?>
-<PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011">
+<PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
   <Metadata>
     <Identity
       Language="en-US"
-      Id="${xmlEscape(extensionId)}"
+      Id="${xmlEscape(packageJson.name)}"
       Version="${xmlEscape(packageJson.version)}"
       Publisher="${xmlEscape(packageJson.publisher)}" />
     <DisplayName>${xmlEscape(packageJson.displayName)}</DisplayName>
     <Description xml:space="preserve">${xmlEscape(packageJson.description)}</Description>
     <Tags>${xmlEscape((packageJson.keywords || []).join(","))}</Tags>
     <Categories>${xmlEscape((packageJson.categories || []).join(","))}</Categories>
+    <GalleryFlags>Public</GalleryFlags>
     <Properties>
-      <Property Id="Microsoft.VisualStudio.Code.Engine" Value="${xmlEscape(packageJson.engines.vscode)}" />
-      <Property Id="Microsoft.VisualStudio.Code.TargetPlatform" Value="${xmlEscape(targetPlatform)}" />
-      <Property Id="Microsoft.VisualStudio.Code.ExtensionKind" Value="workspace" />
+${properties.map((property) => `      ${property}`).join("\n")}
     </Properties>
   </Metadata>
   <Installation>
-    <InstallationTarget Id="Microsoft.VisualStudio.Code" Version="${xmlEscape(minimumVscodeVersion)}" />
+    <InstallationTarget Id="Microsoft.VisualStudio.Code" />
   </Installation>
   <Dependencies />
   <Assets>
-    <Asset Type="Microsoft.VisualStudio.Code.Manifest" Path="extension/package.json" />
-    <Asset Type="Microsoft.VisualStudio.Services.Content.Details" Path="extension/README.md" />
-    <Asset Type="Microsoft.VisualStudio.Services.Content.License" Path="extension/LICENSE" />
+${assets.map((asset) => `    ${asset}`).join("\n")}
   </Assets>
 </PackageManifest>
 `;
+}
+
+function propertyXml(id, value) {
+  return `<Property Id="${xmlEscape(id)}" Value="${xmlEscape(value)}" />`;
 }
 
 function xmlEscape(value) {
