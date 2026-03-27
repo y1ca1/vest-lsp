@@ -1,6 +1,6 @@
 {
   "name": "vest",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "main": "grammar.js",
   "dependencies": {
     "tree-sitter-cli": "^0.25.0"
