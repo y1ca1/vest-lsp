@@ -37,7 +37,7 @@ function main() {
   copy(path.join(extensionRoot, "extension.wasm"), path.join(stagedRoot, "extension.wasm"));
   copy(path.join(extensionRoot, "README.md"), path.join(stagedRoot, "README.md"));
   copyDirectory(path.join(extensionRoot, "languages"), path.join(stagedRoot, "languages"));
-  copy(
+  copyIfExists(
     path.join(extensionRoot, "grammars", "vest.wasm"),
     path.join(stagedRoot, "grammars", "vest.wasm"),
   );
@@ -52,6 +52,15 @@ function copy(source, destination) {
 
 function copyDirectory(source, destination) {
   fs.cpSync(source, destination, { recursive: true });
+}
+
+function copyIfExists(source, destination) {
+  if (!fs.existsSync(source)) {
+    console.warn(`Skipping optional generated artifact: ${source}`);
+    return;
+  }
+
+  copy(source, destination);
 }
 
 function run(command, args, options = {}) {

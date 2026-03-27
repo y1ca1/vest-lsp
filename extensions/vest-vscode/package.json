@@ -3,7 +3,7 @@
   "displayName": "Vest",
   "description": "Language support for the Vest DSL with the Vest language server.",
   "version": "0.1.0",
-  "publisher": "vest-dsl",
+  "publisher": "vest-lsp",
   "license": "MIT",
   "repository": {
     "type": "git",
