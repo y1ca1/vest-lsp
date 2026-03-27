@@ -150,7 +150,7 @@ jobs:
           files: |
             release-artifacts/**/*.vsix
             release-artifacts/**/*.tar.gz
-            release-artifacts/**/*.gz
+            release-artifacts/**/vest_lsp-*.gz
 
   publish-vscode-marketplace:
     needs:
