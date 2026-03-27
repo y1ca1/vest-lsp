@@ -2,7 +2,7 @@
   "name": "vest-binary-format-dsl",
   "displayName": "Vest DSL",
   "description": "Language support for the Vest DSL with the Vest language server.",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "publisher": "vest-lsp",
   "license": "MIT",
   "repository": {

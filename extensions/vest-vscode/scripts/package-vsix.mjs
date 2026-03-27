@@ -15,7 +15,7 @@ const SOURCE_ENTRIES = [
   "extension.js",
   "language-configuration.json",
   "README.md",
-  "node_modules",
+  "package-lock.json",
   "package.json",
   "syntaxes",
 ];
@@ -45,6 +45,11 @@ function main() {
   fs.mkdirSync(distRoot, { recursive: true });
 
   copyExtensionSource(stagedExtensionRoot);
+  run("npm", [
+    "ci",
+    "--omit=dev",
+    "--ignore-scripts",
+  ], { cwd: stagedExtensionRoot });
 
   if (bundleServer) {
     const bundledBinarySource = path.join(repoRoot, "target", "release", executableName("vest_lsp"));
