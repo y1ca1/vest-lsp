@@ -1060,7 +1060,7 @@ checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
 name = "vest_db"
-version = "0.1.0"
+version = "0.1.7"
 dependencies = [
  "expect-test",
  "lsp-types",
@@ -1072,7 +1072,7 @@ dependencies = [
 
 [[package]]
 name = "vest_lsp"
-version = "0.1.0"
+version = "0.1.7"
 dependencies = [
  "async-lsp",
  "expect-test",
@@ -1090,7 +1090,7 @@ dependencies = [
 
 [[package]]
 name = "vest_syntax"
-version = "0.1.0"
+version = "0.1.7"
 dependencies = [
  "cc",
  "expect-test",
