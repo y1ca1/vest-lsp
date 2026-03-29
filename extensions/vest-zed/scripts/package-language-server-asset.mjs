@@ -8,6 +8,7 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const extensionRoot = path.resolve(scriptDir, "..");
 const repoRoot = path.resolve(extensionRoot, "..", "..");
 const distRoot = path.join(extensionRoot, "dist");
+const targetTriple = process.env.VEST_TARGET_TRIPLE;
 
 main();
 
@@ -23,13 +24,20 @@ function main() {
     "vest_lsp",
     "--bin",
     "vest_lsp",
+    ...(targetTriple ? ["--target", targetTriple] : []),
   ], { cwd: repoRoot });
 
   fs.mkdirSync(distRoot, { recursive: true });
 
-  const assetName = releaseAssetName();
-  const binaryName = process.platform === "win32" ? "vest_lsp.exe" : "vest_lsp";
-  const binaryPath = path.join(repoRoot, "target", "release", binaryName);
+  const metadata = releaseTargetMetadata();
+  const assetName = metadata.assetName;
+  const binaryPath = path.join(
+    repoRoot,
+    "target",
+    ...(targetTriple ? [targetTriple] : []),
+    "release",
+    metadata.binaryName,
+  );
   const assetPath = path.join(distRoot, assetName);
 
   const compressed = zlib.gzipSync(fs.readFileSync(binaryPath));
@@ -38,7 +46,15 @@ function main() {
   console.log(assetPath);
 }
 
-function releaseAssetName() {
+function releaseTargetMetadata() {
+  if (targetTriple) {
+    const metadata = supportedTargets().get(targetTriple);
+    if (!metadata) {
+      throw new Error(`Unsupported release target: ${targetTriple}`);
+    }
+    return metadata;
+  }
+
   const osName = {
     darwin: "mac",
     linux: "linux",
@@ -53,7 +69,39 @@ function releaseAssetName() {
     throw new Error(`Unsupported release asset platform: ${process.platform} ${process.arch}`);
   }
 
-  return `vest_lsp-${osName}-${archName}.gz`;
+  return {
+    assetName: `vest_lsp-${osName}-${archName}.gz`,
+    binaryName: process.platform === "win32" ? "vest_lsp.exe" : "vest_lsp",
+  };
+}
+
+function supportedTargets() {
+  return new Map([
+    [
+      "x86_64-unknown-linux-gnu",
+      { assetName: "vest_lsp-linux-x8664.gz", binaryName: "vest_lsp" },
+    ],
+    [
+      "aarch64-unknown-linux-gnu",
+      { assetName: "vest_lsp-linux-aarch64.gz", binaryName: "vest_lsp" },
+    ],
+    [
+      "x86_64-apple-darwin",
+      { assetName: "vest_lsp-mac-x8664.gz", binaryName: "vest_lsp" },
+    ],
+    [
+      "aarch64-apple-darwin",
+      { assetName: "vest_lsp-mac-aarch64.gz", binaryName: "vest_lsp" },
+    ],
+    [
+      "x86_64-pc-windows-msvc",
+      { assetName: "vest_lsp-windows-x8664.gz", binaryName: "vest_lsp.exe" },
+    ],
+    [
+      "aarch64-pc-windows-msvc",
+      { assetName: "vest_lsp-windows-aarch64.gz", binaryName: "vest_lsp.exe" },
+    ],
+  ]);
 }
 
 function run(command, args, options = {}) {
